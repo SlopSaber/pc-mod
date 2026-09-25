@@ -43,6 +43,7 @@ namespace ScoreSaber.Features.Replays.Playback {
         private BeatmapCallbacksController _beatmapObjectCallbackController;
         private readonly BeatmapObjectSpawnController _beatmapObjectSpawnController;
         private bool _paused;
+        private float _seekDiagnosticTime = float.NaN;
 
         public ReplayTimeSyncController(List<IScroller> scrollers, BasicBeatmapObjectManager basicBeatmapObjectManager, NoteCutSoundEffectManager noteCutSoundEffectManager, BeatmapObjectSpawnController beatmapObjectSpawnController, AudioTimeSyncController.InitData audioInitData, BeatmapCallbacksController.InitData initData, BeatmapCallbacksController beatmapObjectCallbackController, BeatmapCallbacksUpdater beatmapCallbacksUpdater, IReadonlyBeatmapData beatmapData, DiContainer container) {
             _scrollers = scrollers;
@@ -94,6 +95,10 @@ namespace ScoreSaber.Features.Replays.Playback {
             if (Input.GetKeyDown(KeyCode.RightArrow)) {
                 OverrideTime(Mathf.Min(audioTimeSyncController.songLength, audioTimeSyncController.songTime + KeyboardSeekSeconds));
             }
+            if (!float.IsNaN(_seekDiagnosticTime) && audioTimeSyncController.songTime >= _seekDiagnosticTime + 2f) {
+                LogSeekObjects("after 2s", audioTimeSyncController.songTime);
+                _seekDiagnosticTime = float.NaN;
+            }
         }
 
         private static int TimeJumpKeyIndex() {
@@ -140,6 +145,8 @@ namespace ScoreSaber.Features.Replays.Playback {
                 if (wasPlaying) audioTimeSyncController.Resume();
                 _beatmapCallbacksUpdater.LateUpdate();
                 UpdateTimes();
+                LogSeekObjects("immediate", time);
+                _seekDiagnosticTime = time;
             } finally {
                 _beatmapCallbacksUpdater.Resume();
                 if (wasPlaying && !audioTimeSyncController.IsPlaying()) audioTimeSyncController.Resume();
@@ -166,6 +173,14 @@ namespace ScoreSaber.Features.Replays.Playback {
                     : item is ObstacleController ? DespawnObstacle : null;
                 method?.Invoke(_beatmapObjectManager, argument);
             }
+        }
+
+        private void LogSeekObjects(string phase, float time) {
+            var notes = _basicBeatmapObjectManager._basicGameNotePoolContainer.activeItems;
+            var activeNotes = notes.Where(note => note != null && note.gameObject.activeInHierarchy).ToArray();
+            var callbackData = _beatmapObjectCallbackController.GetField<IReadonlyBeatmapData, BeatmapCallbacksController>("_beatmapData");
+            var callbacks = string.Join(", ", _beatmapObjectCallbackController._callbacksInTimes.Take(5).Select(pair => $"{pair.Key:0.##}:{pair.Value.lastProcessedNode?.Value.time.ToString("0.##") ?? "none"}"));
+            Plugin.Log.Info($"Replay seek objects {phase} at {time:0.##}s: notes={activeNotes.Length}, spawned={_spawnedBeatmapObjects.Count}, spawnDisabled={_beatmapObjectSpawnController.GetField<bool, BeatmapObjectSpawnController>("_disableSpawning")}, sameBeatmapData={ReferenceEquals(callbackData, _beatmapData)}, callbacks={callbacks}, sample={activeNotes.FirstOrDefault()?.noteTransform.position}");
         }
 
         public void Dispose() => _seekInterop.Dispose();

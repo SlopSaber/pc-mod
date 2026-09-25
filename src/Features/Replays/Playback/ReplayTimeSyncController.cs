@@ -44,6 +44,7 @@ namespace ScoreSaber.Features.Replays.Playback {
         private readonly BeatmapObjectSpawnController _beatmapObjectSpawnController;
         private bool _paused;
         private float _seekDiagnosticTime = float.NaN;
+        private int _seekDiagnosticStage;
 
         public ReplayTimeSyncController(List<IScroller> scrollers, BasicBeatmapObjectManager basicBeatmapObjectManager, NoteCutSoundEffectManager noteCutSoundEffectManager, BeatmapObjectSpawnController beatmapObjectSpawnController, AudioTimeSyncController.InitData audioInitData, BeatmapCallbacksController.InitData initData, BeatmapCallbacksController beatmapObjectCallbackController, BeatmapCallbacksUpdater beatmapCallbacksUpdater, IReadonlyBeatmapData beatmapData, DiContainer container) {
             _scrollers = scrollers;
@@ -95,9 +96,18 @@ namespace ScoreSaber.Features.Replays.Playback {
             if (Input.GetKeyDown(KeyCode.RightArrow)) {
                 OverrideTime(Mathf.Min(audioTimeSyncController.songLength, audioTimeSyncController.songTime + KeyboardSeekSeconds));
             }
-            if (!float.IsNaN(_seekDiagnosticTime) && audioTimeSyncController.songTime >= _seekDiagnosticTime + 2f) {
-                LogSeekObjects("after 2s", audioTimeSyncController.songTime);
-                _seekDiagnosticTime = float.NaN;
+            if (!float.IsNaN(_seekDiagnosticTime)) {
+                var elapsed = audioTimeSyncController.songTime - _seekDiagnosticTime;
+                if (_seekDiagnosticStage == 0 && elapsed >= 2f) {
+                    LogSeekObjects("after 2s", audioTimeSyncController.songTime);
+                    _seekDiagnosticStage = 1;
+                } else if (_seekDiagnosticStage == 1 && elapsed >= 5f) {
+                    LogSeekObjects("after 5s", audioTimeSyncController.songTime);
+                    _seekDiagnosticStage = 2;
+                } else if (_seekDiagnosticStage == 2 && elapsed >= 10f) {
+                    LogSeekObjects("after 10s", audioTimeSyncController.songTime);
+                    _seekDiagnosticTime = float.NaN;
+                }
             }
         }
 
@@ -147,6 +157,7 @@ namespace ScoreSaber.Features.Replays.Playback {
                 UpdateTimes();
                 LogSeekObjects("immediate", time);
                 _seekDiagnosticTime = time;
+                _seekDiagnosticStage = 0;
             } finally {
                 _beatmapCallbacksUpdater.Resume();
                 if (wasPlaying && !audioTimeSyncController.IsPlaying()) audioTimeSyncController.Resume();
@@ -180,7 +191,7 @@ namespace ScoreSaber.Features.Replays.Playback {
             var activeNotes = notes.Where(note => note != null && note.gameObject.activeInHierarchy).ToArray();
             var callbackData = _beatmapObjectCallbackController.GetField<IReadonlyBeatmapData, BeatmapCallbacksController>("_beatmapData");
             var callbacks = string.Join(", ", _beatmapObjectCallbackController._callbacksInTimes.Take(5).Select(pair => $"{pair.Key:0.##}:{pair.Value.lastProcessedNode?.Value.time.ToString("0.##") ?? "none"}"));
-            Plugin.Log.Info($"Replay seek objects {phase} at {time:0.##}s: notes={activeNotes.Length}, spawned={_spawnedBeatmapObjects.Count}, spawnDisabled={_beatmapObjectSpawnController.GetField<bool, BeatmapObjectSpawnController>("_disableSpawning")}, sameBeatmapData={ReferenceEquals(callbackData, _beatmapData)}, callbacks={callbacks}, sample={activeNotes.FirstOrDefault()?.noteTransform.position}");
+            Plugin.Log.Info($"Replay seek objects {phase} at {time:0.##}s: notes={activeNotes.Length}, spawned={_spawnedBeatmapObjects.Count}, spawnDisabled={_beatmapObjectSpawnController.GetField<bool, BeatmapObjectSpawnController>("_disableSpawning")}, startFilter={_beatmapObjectCallbackController.GetField<float, BeatmapCallbacksController>("_startFilterTime"):0.##}, sameBeatmapData={ReferenceEquals(callbackData, _beatmapData)}, callbacks={callbacks}, sample={activeNotes.FirstOrDefault()?.noteTransform.position}");
         }
 
         public void Dispose() => _seekInterop.Dispose();

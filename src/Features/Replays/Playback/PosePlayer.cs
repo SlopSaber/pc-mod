@@ -182,7 +182,13 @@ namespace ScoreSaber.Features.Replays.Playback {
                 var activeNotes = Resources.FindObjectsOfTypeAll<GameNoteController>()
                     .Where(note => note != null && note.gameObject.activeInHierarchy).ToArray();
                 Plugin.Log.Info($"Replay notes at 5s: count={activeNotes.Length}; samples={string.Join("; ", activeNotes.Take(4).Select(note => $"{note.name} pos={note.noteTransform.position} layer={note.gameObject.layer} renderers={note.GetComponentsInChildren<Renderer>().Count(renderer => renderer.enabled)}"))}");
-                Plugin.Log.Info($"Replay cameras at 5s: {string.Join("; ", Resources.FindObjectsOfTypeAll<Camera>().Where(camera => camera != null && camera.isActiveAndEnabled).Take(12).Select(camera => $"{camera.name} pos={camera.transform.position} depth={camera.depth:0.##} mask=0x{camera.cullingMask:X8} clear={camera.clearFlags} target={(camera.targetTexture != null ? "texture" : "screen")}"))}");
+                var planes = GeometryUtility.CalculateFrustumPlanes(_desktopCamera);
+                var closestNote = activeNotes.OrderBy(note => (note.noteTransform.position - _desktopCamera.transform.position).sqrMagnitude).FirstOrDefault();
+                if (closestNote != null)
+                    Plugin.Log.Info($"Replay closest note at 5s: pos={closestNote.noteTransform.position}; renderers={string.Join("; ", closestNote.GetComponentsInChildren<Renderer>().Select(renderer => $"{renderer.name} layer={renderer.gameObject.layer} enabled={renderer.enabled} visible={renderer.isVisible} bounds={renderer.bounds.center} frustum={GeometryUtility.TestPlanesAABB(planes, renderer.bounds)} shader={renderer.sharedMaterial?.shader?.name}"))}");
+                Plugin.Log.Info($"Replay camera projection at 5s: rotation={_desktopCamera.transform.rotation.eulerAngles}, fov={_desktopCamera.fieldOfView:0.#}, aspect={_desktopCamera.aspect:0.###}");
+                var cameras = Resources.FindObjectsOfTypeAll<Camera>();
+                Plugin.Log.Info($"Replay cameras at 5s: count={cameras.Length}; samples={string.Join("; ", cameras.Take(30).Select(camera => $"{camera.name} active={camera.gameObject.activeInHierarchy} enabled={camera.enabled} pos={camera.transform.position} rot={camera.transform.rotation.eulerAngles} depth={camera.depth:0.##} mask=0x{camera.cullingMask:X8} clear={camera.clearFlags} target={(camera.targetTexture != null ? "texture" : "screen")}"))}");
             }
 
             DidUpdatePose?.Invoke(activePose);

@@ -1,14 +1,19 @@
 ﻿using IPA.Utilities;
+using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using UnityEngine;
 using Zenject;
 
 namespace ScoreSaber.Features.Replays.Playback {
-    internal class ReplayTimeSyncController : TimeSynchronizer, ITickable {
+    internal class ReplayTimeSyncController : TimeSynchronizer, ITickable, IDisposable {
         private static readonly FieldAccessor<BeatmapCallbacksController.InitData, float>.Accessor InitialStartFilterTime =
             FieldAccessor<BeatmapCallbacksController.InitData, float>.GetAccessor("startFilterTime");
-        private static readonly FieldAccessor<BeatmapCallbacksController, float>.Accessor CallbackStartFilterTime =
-            FieldAccessor<BeatmapCallbacksController, float>.GetAccessor("_startFilterTime");
+        private static readonly BindingFlags DespawnFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        private static readonly MethodInfo DespawnNote = typeof(BeatmapObjectManager).GetMethod("Despawn", DespawnFlags, null, new[] { typeof(NoteController) }, null);
+        private static readonly MethodInfo DespawnSlider = typeof(BeatmapObjectManager).GetMethod("Despawn", DespawnFlags, null, new[] { typeof(SliderController) }, null);
+        private static readonly MethodInfo DespawnObstacle = typeof(BeatmapObjectManager).GetMethod("Despawn", DespawnFlags, null, new[] { typeof(ObstacleController) }, null);
         private const float KeyboardSeekSeconds = 5f;
 
         private static readonly KeyCode[] TimeJumpKeys = {
@@ -26,6 +31,11 @@ namespace ScoreSaber.Features.Replays.Playback {
 
         private readonly List<IScroller> _scrollers;
         private readonly AudioManager _audioManager;
+        private readonly BeatmapObjectManager _beatmapObjectManager;
+        private readonly BeatmapCallbacksUpdater _beatmapCallbacksUpdater;
+        private readonly IReadonlyBeatmapData _beatmapData;
+        private readonly ReplaySeekInterop _seekInterop;
+        private readonly List<IBeatmapObjectController> _spawnedBeatmapObjects;
         private AudioTimeSyncController.InitData _audioInitData;
         private BasicBeatmapObjectManager _basicBeatmapObjectManager;
         private NoteCutSoundEffectManager _noteCutSoundEffectManager;
@@ -34,7 +44,7 @@ namespace ScoreSaber.Features.Replays.Playback {
         private readonly BeatmapObjectSpawnController _beatmapObjectSpawnController;
         private bool _paused;
 
-        public ReplayTimeSyncController(List<IScroller> scrollers, BasicBeatmapObjectManager basicBeatmapObjectManager, NoteCutSoundEffectManager noteCutSoundEffectManager, BeatmapObjectSpawnController beatmapObjectSpawnController, AudioTimeSyncController.InitData audioInitData, BeatmapCallbacksController.InitData initData, BeatmapCallbacksController beatmapObjectCallbackController) {
+        public ReplayTimeSyncController(List<IScroller> scrollers, BasicBeatmapObjectManager basicBeatmapObjectManager, NoteCutSoundEffectManager noteCutSoundEffectManager, BeatmapObjectSpawnController beatmapObjectSpawnController, AudioTimeSyncController.InitData audioInitData, BeatmapCallbacksController.InitData initData, BeatmapCallbacksController beatmapObjectCallbackController, BeatmapCallbacksUpdater beatmapCallbacksUpdater, IReadonlyBeatmapData beatmapData, DiContainer container) {
             _scrollers = scrollers;
             _callbackInitData = initData;
             _audioInitData = audioInitData;
@@ -42,6 +52,11 @@ namespace ScoreSaber.Features.Replays.Playback {
             _noteCutSoundEffectManager = noteCutSoundEffectManager;
             _beatmapObjectSpawnController = beatmapObjectSpawnController;
             _beatmapObjectCallbackController = beatmapObjectCallbackController;
+            _beatmapCallbacksUpdater = beatmapCallbacksUpdater;
+            _beatmapData = beatmapData;
+            _beatmapObjectManager = basicBeatmapObjectManager;
+            _spawnedBeatmapObjects = _beatmapObjectManager.GetField<List<IBeatmapObjectController>, BeatmapObjectManager>("_allBeatmapObjects");
+            _seekInterop = new ReplaySeekInterop(container, beatmapData);
             _audioManager = noteCutSoundEffectManager._audioManager;
         }
 
@@ -97,54 +112,63 @@ namespace ScoreSaber.Features.Replays.Playback {
         }
 
         public void OverrideTime(float time) {
-
-            if (Mathf.Abs(time - audioTimeSyncController.songTime) <= 0.25f)
-                return;
+            if (!audioTimeSyncController.isReady || float.IsNaN(time) || float.IsInfinity(time)) return;
+            time = Mathf.Clamp(time, 0f, audioTimeSyncController.songLength);
+            if (Mathf.Abs(time - audioTimeSyncController.songTime) <= 0.001f) return;
 
             var _audioTimeSyncController = audioTimeSyncController; // UMBRAMEGALUL
             HarmonyPatches.CutSoundEffectOverride.Buffer = true;
             CancelAllHitSounds();
-
-            // Forcibly enabling all the note/obstacle components to ensure their dissolve coroutine executes (it no likey when game pausey).
-            // TODO: do we have to do this for arcs aswell?
-            ResetBeatmapObjects(_basicBeatmapObjectManager._basicGameNotePoolContainer.activeItems);
-            ResetBeatmapObjects(_basicBeatmapObjectManager._burstSliderHeadGameNotePoolContainer.activeItems);
-            ResetBeatmapObjects(_basicBeatmapObjectManager._burstSliderGameNotePoolContainer.activeItems);
-            ResetBeatmapObjects(_basicBeatmapObjectManager._bombNotePoolContainer.activeItems);
-            ResetBeatmapObjects(_basicBeatmapObjectManager.activeObstacleControllers);
-
             bool wasPlaying = audioTimeSyncController.IsPlaying();
-
             audioTimeSyncController.Pause();
-            audioTimeSyncController.SeekTo(time / audioTimeSyncController.timeScale);
+            _beatmapCallbacksUpdater.Pause();
+            try {
+                DespawnAllBeatmapObjects();
+                _audioTimeSyncController.SetField("_prevAudioSamplePos", -1);
+                audioTimeSyncController.SeekTo(time / audioTimeSyncController.timeScale);
+                _audioTimeSyncController._songTime = time;
+                audioTimeSyncController.Update();
+                _beatmapObjectCallbackController.SetField("_songTime", time);
+                if (_beatmapObjectCallbackController._callbacksInTimes.TryGetValue(0f, out var callbacks))
+                    _seekInterop.Rebuild(callbacks, time);
 
-            if (wasPlaying)
-                audioTimeSyncController.Resume();
+                _beatmapObjectCallbackController.SetField("_prevSongTime", float.MinValue);
+                var precedingItem = FindBeatmapItem(time);
+                foreach (var callback in _beatmapObjectCallbackController._callbacksInTimes)
+                    callback.Value.lastProcessedNode = precedingItem;
 
-            InitialStartFilterTime(ref _callbackInitData) = time;
-            CallbackStartFilterTime(ref _beatmapObjectCallbackController) = time;
-
-            foreach (var callback in _beatmapObjectCallbackController._callbacksInTimes) {
-
-                if (callback.Value.lastProcessedNode != null && callback.Value.lastProcessedNode.Value.time > time)
-                    callback.Value.lastProcessedNode = null;
-            }
-
-            _audioTimeSyncController._songTime = time;
-
-            audioTimeSyncController.Update();
-            UpdateTimes();
-        }
-
-        private static void ResetBeatmapObjects<T>(IEnumerable<T> controllers) where T : Behaviour, IBeatmapObjectController {
-            foreach (var controller in controllers) {
-                controller.Hide(false);
-                controller.Pause(false);
-                controller.enabled = true;
-                controller.gameObject.SetActive(true);
-                controller.Dissolve(0f);
+                if (wasPlaying) audioTimeSyncController.Resume();
+                _beatmapCallbacksUpdater.LateUpdate();
+                UpdateTimes();
+            } finally {
+                _beatmapCallbacksUpdater.Resume();
+                if (wasPlaying && !audioTimeSyncController.IsPlaying()) audioTimeSyncController.Resume();
             }
         }
+
+        private LinkedListNode<BeatmapDataItem> FindBeatmapItem(float time) {
+            LinkedListNode<BeatmapDataItem> precedingItem = null;
+            var startFilterTime = InitialStartFilterTime(ref _callbackInitData);
+            for (var node = _beatmapData.allBeatmapDataItems.First; node != null; node = node.Next) {
+                if (node.Value.time >= startFilterTime && node.Value.time >= time) break;
+                precedingItem = node;
+            }
+            return precedingItem;
+        }
+
+        private void DespawnAllBeatmapObjects() {
+            var argument = new object[1];
+            foreach (var item in _spawnedBeatmapObjects.ToArray()) {
+                item.Pause(false);
+                argument[0] = item;
+                var method = item is NoteController ? DespawnNote
+                    : item is SliderController ? DespawnSlider
+                    : item is ObstacleController ? DespawnObstacle : null;
+                method?.Invoke(_beatmapObjectManager, argument);
+            }
+        }
+
+        public void Dispose() => _seekInterop.Dispose();
 
         public void OverrideTimeScale(float newScale) {
 

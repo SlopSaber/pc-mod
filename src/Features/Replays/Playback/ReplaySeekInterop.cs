@@ -141,8 +141,8 @@ namespace ScoreSaber.Features.Replays.Playback {
             return events;
         }
 
-        private static void CaptureInitialTransform(object instance) {
-            if (instance is Component component) _active?.Capture(component);
+        private static void CaptureInitialTransform(object __instance) {
+            if (__instance is Component component) _active?.Capture(component);
         }
 
         private void Capture(Component component) {

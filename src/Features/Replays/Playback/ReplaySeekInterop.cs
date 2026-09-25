@@ -17,7 +17,6 @@ namespace ScoreSaber.Features.Replays.Playback {
         private readonly Dictionary<Component, TransformState> _initialTransforms = new Dictionary<Component, TransformState>();
         private readonly Harmony _harmony = new Harmony("ScoreSaber.ReplaySeekInterop");
         private MethodInfo _transformOnEnable;
-        private MethodInfo _noteSpawnCallback;
         private MethodInfo _noodleManualUpdate;
         private FieldInfo _noodlePrevSongTime;
         private FieldInfo _noodleCallbacksInTime;
@@ -31,7 +30,6 @@ namespace ScoreSaber.Features.Replays.Playback {
         private MethodInfo _finishChroma;
         private List<BeatmapDataItem> _animationEvents;
         private static ReplaySeekInterop _active;
-        public static int NoteSpawnCallbackCount { get; private set; }
 
         private struct TransformState {
             public Vector3 Position;
@@ -51,9 +49,6 @@ namespace ScoreSaber.Features.Replays.Playback {
             BeginHeck(container);
             BeginChroma(container);
             BeginNoodle();
-            _noteSpawnCallback = typeof(BeatmapObjectSpawnController).GetMethod("HandleNoteDataCallback", AllInstance);
-            if (_noteSpawnCallback != null)
-                _harmony.Patch(_noteSpawnCallback, prefix: new HarmonyMethod(typeof(ReplaySeekInterop).GetMethod(nameof(CountNoteSpawnCallback), BindingFlags.Static | BindingFlags.NonPublic)));
             Plugin.Log.Info($"Replay seek map state: Heck tracks={_tracks?.Count ?? 0}, Chroma light groups={_chromaColorizers?.Count ?? 0}");
         }
 
@@ -193,7 +188,6 @@ namespace ScoreSaber.Features.Replays.Playback {
             if (__instance is Component component) _active?.Capture(component);
         }
 
-        private static void CountNoteSpawnCallback() => NoteSpawnCallbackCount++;
 
         private void Capture(Component component) {
             if (!_initialTransforms.ContainsKey(component))
@@ -222,8 +216,6 @@ namespace ScoreSaber.Features.Replays.Playback {
             EndChroma();
             if (_noodleManualUpdate != null)
                 _harmony.Unpatch(_noodleManualUpdate, HarmonyPatchType.Prefix, _harmony.Id);
-            if (_noteSpawnCallback != null)
-                _harmony.Unpatch(_noteSpawnCallback, HarmonyPatchType.Prefix, _harmony.Id);
             if (_active == this) _active = null;
         }
     }

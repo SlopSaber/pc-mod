@@ -80,10 +80,13 @@ namespace ScoreSaber.Features.Replays.Legacy {
         }
 
         private void SetupCameras() {
+            var sourceCamera = Resources.FindObjectsOfTypeAll<SmoothCamera>()
+                .FirstOrDefault(camera => camera.isActiveAndEnabled)?.GetComponent<Camera>() ?? _mainCamera.camera;
             _mainCamera.enabled = false;
             _mainCamera.gameObject.SetActive(false);
 
             _desktopCamera = Resources.FindObjectsOfTypeAll<Camera>().First(x => (x.name == "RecorderCamera"));
+            _presentation.ConfigureReplayCamera(_desktopCamera, sourceCamera);
 
             _desktopCamera.fieldOfView = _settings.Current.replayCameraFOV;
             _desktopCamera.transform.position = new Vector3(_desktopCamera.transform.position.x, _desktopCamera.transform.position.y, _desktopCamera.transform.position.z);

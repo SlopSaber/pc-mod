@@ -24,6 +24,7 @@ namespace ScoreSaber.Features.Replays.Playback {
         private Camera _spectatorCamera;
         private Camera _desktopCamera;
         private bool _saberEnabled = true;
+        private bool _loggedCameraPosition;
         private Vector3 _spectatorOffset;
 
         public PosePlayer(ReplayFile file, MainCamera mainCamera, SaberManager saberManager, IReturnToMenuController returnToMenuController, IFPFCSettings fpfcSettings, PlayerTransforms playerTransforms, RoomSettings roomSettings, SettingsService settings, PlayerVRControllersManager controllers) {
@@ -64,9 +65,12 @@ namespace ScoreSaber.Features.Replays.Playback {
 
         private void SetupCameras() {
 
+            var sourceCamera = Resources.FindObjectsOfTypeAll<SmoothCamera>()
+                .FirstOrDefault(camera => camera.isActiveAndEnabled)?.GetComponent<Camera>() ?? _mainCamera.camera;
             _mainCamera.enabled = false;
             _mainCamera.gameObject.SetActive(false);
             _desktopCamera = Resources.FindObjectsOfTypeAll<Camera>().First(x => (x.name == "RecorderCamera"));
+            _presentation.ConfigureReplayCamera(_desktopCamera, sourceCamera);
 
             _desktopCamera.fieldOfView = _settings.Current.replayCameraFOV;
             _desktopCamera.transform.position = new Vector3(_desktopCamera.transform.position.x, _desktopCamera.transform.position.y, _desktopCamera.transform.position.z);
@@ -171,6 +175,11 @@ namespace ScoreSaber.Features.Replays.Playback {
             pos.z += _settings.Current.replayCameraZOffset;
 
             _desktopCamera.transform.SetPositionAndRotation(Vector3.Lerp(_desktopCamera.transform.position, pos, t2), Quaternion.Lerp(_desktopCamera.transform.rotation, rot, t2));
+
+            if (!_loggedCameraPosition && audioTimeSyncController.songTime >= 5f) {
+                _loggedCameraPosition = true;
+                Plugin.Log.Info($"Replay view at {audioTimeSyncController.songTime:0.0}s: recordedHead={pos}, camera={_desktopCamera.transform.position}, origin={originParentTransform.position}, mask=0x{_desktopCamera.cullingMask:X8}");
+            }
 
             DidUpdatePose?.Invoke(activePose);
         }

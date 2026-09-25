@@ -24,7 +24,6 @@ namespace ScoreSaber.Features.Replays.Playback {
         private Camera _spectatorCamera;
         private Camera _desktopCamera;
         private bool _saberEnabled = true;
-        private bool _loggedCameraPosition;
         private Vector3 _spectatorOffset;
 
         public PosePlayer(ReplayFile file, MainCamera mainCamera, SaberManager saberManager, IReturnToMenuController returnToMenuController, IFPFCSettings fpfcSettings, PlayerTransforms playerTransforms, RoomSettings roomSettings, SettingsService settings, PlayerVRControllersManager controllers) {
@@ -65,12 +64,9 @@ namespace ScoreSaber.Features.Replays.Playback {
 
         private void SetupCameras() {
 
-            var sourceCamera = Resources.FindObjectsOfTypeAll<SmoothCamera>()
-                .FirstOrDefault(camera => camera.isActiveAndEnabled)?.GetComponent<Camera>() ?? _mainCamera.camera;
             _mainCamera.enabled = false;
             _mainCamera.gameObject.SetActive(false);
             _desktopCamera = Resources.FindObjectsOfTypeAll<Camera>().First(x => (x.name == "RecorderCamera"));
-            _presentation.ConfigureReplayCamera(_desktopCamera, sourceCamera);
 
             _desktopCamera.fieldOfView = _settings.Current.replayCameraFOV;
             _desktopCamera.transform.position = new Vector3(_desktopCamera.transform.position.x, _desktopCamera.transform.position.y, _desktopCamera.transform.position.z);
@@ -175,21 +171,6 @@ namespace ScoreSaber.Features.Replays.Playback {
             pos.z += _settings.Current.replayCameraZOffset;
 
             _desktopCamera.transform.SetPositionAndRotation(Vector3.Lerp(_desktopCamera.transform.position, pos, t2), Quaternion.Lerp(_desktopCamera.transform.rotation, rot, t2));
-
-            if (!_loggedCameraPosition && audioTimeSyncController.songTime >= 5f) {
-                _loggedCameraPosition = true;
-                Plugin.Log.Info($"Replay view at {audioTimeSyncController.songTime:0.0}s: recordedHead={pos}, camera={_desktopCamera.transform.position}, origin={originParentTransform.position}, mask=0x{_desktopCamera.cullingMask:X8}");
-                var activeNotes = Resources.FindObjectsOfTypeAll<GameNoteController>()
-                    .Where(note => note != null && note.gameObject.activeInHierarchy).ToArray();
-                Plugin.Log.Info($"Replay notes at 5s: count={activeNotes.Length}; samples={string.Join("; ", activeNotes.Take(4).Select(note => $"{note.name} pos={note.noteTransform.position} layer={note.gameObject.layer} renderers={note.GetComponentsInChildren<Renderer>().Count(renderer => renderer.enabled)}"))}");
-                var planes = GeometryUtility.CalculateFrustumPlanes(_desktopCamera);
-                var closestNote = activeNotes.OrderBy(note => (note.noteTransform.position - _desktopCamera.transform.position).sqrMagnitude).FirstOrDefault();
-                if (closestNote != null)
-                    Plugin.Log.Info($"Replay closest note at 5s: pos={closestNote.noteTransform.position}; renderers={string.Join("; ", closestNote.GetComponentsInChildren<Renderer>().Select(renderer => $"{renderer.name} layer={renderer.gameObject.layer} enabled={renderer.enabled} visible={renderer.isVisible} bounds={renderer.bounds.center} frustum={GeometryUtility.TestPlanesAABB(planes, renderer.bounds)} shader={renderer.sharedMaterial?.shader?.name}"))}");
-                Plugin.Log.Info($"Replay camera projection at 5s: rotation={_desktopCamera.transform.rotation.eulerAngles}, fov={_desktopCamera.fieldOfView:0.#}, aspect={_desktopCamera.aspect:0.###}");
-                var cameras = Resources.FindObjectsOfTypeAll<Camera>();
-                Plugin.Log.Info($"Replay cameras at 5s: count={cameras.Length}; samples={string.Join("; ", cameras.Take(30).Select(camera => $"{camera.name} active={camera.gameObject.activeInHierarchy} enabled={camera.enabled} pos={camera.transform.position} rot={camera.transform.rotation.eulerAngles} depth={camera.depth:0.##} mask=0x{camera.cullingMask:X8} clear={camera.clearFlags} target={(camera.targetTexture != null ? "texture" : "screen")}"))}");
-            }
 
             DidUpdatePose?.Invoke(activePose);
         }

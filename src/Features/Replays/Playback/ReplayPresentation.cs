@@ -24,10 +24,6 @@ namespace ScoreSaber.Features.Replays.Playback {
         private bool _cursorReleased;
         private CursorLockMode _previousCursorLockState;
         private bool _previousCursorVisible;
-        private Camera _configuredCamera;
-        private int _previousCullingMask;
-        private float _previousNearClipPlane;
-        private float _previousFarClipPlane;
 
         public ReplayPresentation(PlayerVRControllersManager controllers) {
             _controllers = controllers;
@@ -75,19 +71,6 @@ namespace ScoreSaber.Features.Replays.Playback {
             Plugin.Log.Info($"Replay audio listener: {_replayListener.name}");
         }
 
-        public void ConfigureReplayCamera(Camera replayCamera, Camera sourceCamera) {
-            _configuredCamera = replayCamera;
-            _previousCullingMask = replayCamera.cullingMask;
-            _previousNearClipPlane = replayCamera.nearClipPlane;
-            _previousFarClipPlane = replayCamera.farClipPlane;
-
-            if (sourceCamera != null)
-                replayCamera.cullingMask |= sourceCamera.cullingMask;
-            replayCamera.nearClipPlane = Mathf.Min(replayCamera.nearClipPlane, 0.01f);
-            replayCamera.farClipPlane = Mathf.Max(replayCamera.farClipPlane, 20000f);
-            Plugin.Log.Info($"Replay camera render: mask=0x{_previousCullingMask:X8} -> 0x{replayCamera.cullingMask:X8}, source=0x{(sourceCamera != null ? sourceCamera.cullingMask : 0):X8}, clip={_previousNearClipPlane:0.###}-{_previousFarClipPlane:0.#} -> {replayCamera.nearClipPlane:0.###}-{replayCamera.farClipPlane:0.#}");
-        }
-
         public void SuppressFpfcCameraInput(Camera camera) {
             if (camera == null) return;
             foreach (var component in camera.GetComponents<MonoBehaviour>()) {
@@ -121,11 +104,6 @@ namespace ScoreSaber.Features.Replays.Playback {
         }
 
         public void Dispose() {
-            if (_configuredCamera != null) {
-                _configuredCamera.cullingMask = _previousCullingMask;
-                _configuredCamera.nearClipPlane = _previousNearClipPlane;
-                _configuredCamera.farClipPlane = _previousFarClipPlane;
-            }
             if (_cursorReleased) {
                 Cursor.lockState = _previousCursorLockState;
                 Cursor.visible = _previousCursorVisible;

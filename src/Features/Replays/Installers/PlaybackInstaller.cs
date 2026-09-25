@@ -22,6 +22,7 @@ namespace ScoreSaber.Features.Replays.Installers {
         public override void InstallBindings() {
 
             if (_replayState.IsPlaybackEnabled) {
+                Container.BindInterfacesAndSelfTo<ReplayAudioQuitGuard>().AsSingle();
                 Container.Bind<RoomSettings>().AsSingle();
                 Container.BindInstance(new object()).WithId("ScoreSaberReplay").AsCached();
                 if (!_replayState.IsLegacyReplay) {

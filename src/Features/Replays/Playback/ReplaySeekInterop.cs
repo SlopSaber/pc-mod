@@ -17,6 +17,7 @@ namespace ScoreSaber.Features.Replays.Playback {
         private readonly Dictionary<Component, TransformState> _initialTransforms = new Dictionary<Component, TransformState>();
         private readonly Harmony _harmony = new Harmony("ScoreSaber.ReplaySeekInterop");
         private MethodInfo _transformOnEnable;
+        private MethodInfo _noteSpawnCallback;
         private MethodInfo _nullTrackProperties;
         private IDictionary _tracks;
         private MonoBehaviour _coroutineDummy;
@@ -26,6 +27,7 @@ namespace ScoreSaber.Features.Replays.Playback {
         private MethodInfo _finishChroma;
         private List<BeatmapDataItem> _animationEvents;
         private static ReplaySeekInterop _active;
+        public static int NoteSpawnCallbackCount { get; private set; }
 
         private struct TransformState {
             public Vector3 Position;
@@ -43,6 +45,9 @@ namespace ScoreSaber.Features.Replays.Playback {
             _beatmapData = beatmapData;
             BeginHeck(container);
             BeginChroma(container);
+            _noteSpawnCallback = typeof(BeatmapObjectSpawnController).GetMethod("HandleNoteDataCallback", AllInstance);
+            if (_noteSpawnCallback != null)
+                _harmony.Patch(_noteSpawnCallback, prefix: new HarmonyMethod(typeof(ReplaySeekInterop).GetMethod(nameof(CountNoteSpawnCallback), BindingFlags.Static | BindingFlags.NonPublic)));
             Plugin.Log.Info($"Replay seek map state: Heck tracks={_tracks?.Count ?? 0}, Chroma light groups={_chromaColorizers?.Count ?? 0}");
         }
 
@@ -145,6 +150,8 @@ namespace ScoreSaber.Features.Replays.Playback {
             if (__instance is Component component) _active?.Capture(component);
         }
 
+        private static void CountNoteSpawnCallback() => NoteSpawnCallbackCount++;
+
         private void Capture(Component component) {
             if (!_initialTransforms.ContainsKey(component))
                 _initialTransforms.Add(component, new TransformState(component.transform));
@@ -171,6 +178,8 @@ namespace ScoreSaber.Features.Replays.Playback {
         public void Dispose() {
             EndHeck();
             EndChroma();
+            if (_noteSpawnCallback != null)
+                _harmony.Unpatch(_noteSpawnCallback, HarmonyPatchType.Prefix, _harmony.Id);
         }
     }
 }

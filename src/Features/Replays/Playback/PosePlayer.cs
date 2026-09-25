@@ -48,6 +48,7 @@ namespace ScoreSaber.Features.Replays.Playback {
             _presentation.SuppressFpfcCameraInput(_spectatorCamera);
             _presentation.AttachAudioListener(_desktopCamera);
             _presentation.PrepareSabers();
+            _presentation.ReleaseFpfcCursor(_fpfcSettings.Enabled);
             _fpfcSettings.AddChangedListener(fpfcSettings_Changed);
         }
 
@@ -105,6 +106,7 @@ namespace ScoreSaber.Features.Replays.Playback {
 
             _presentation.SuppressFpfcCameraInput(_desktopCamera);
             _presentation.SuppressFpfcCameraInput(_spectatorCamera);
+            _presentation.ReleaseFpfcCursor(_fpfcSettings.Enabled);
 
             if (ReachedEnd()) {
                 _returnToMenuController.ReturnToMenu();

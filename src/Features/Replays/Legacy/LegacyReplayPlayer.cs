@@ -66,6 +66,7 @@ namespace ScoreSaber.Features.Replays.Legacy {
             _presentation.SuppressFpfcCameraInput(_spectatorCamera);
             _presentation.AttachAudioListener(_desktopCamera);
             _presentation.PrepareSabers();
+            _presentation.ReleaseFpfcCursor(_fpfcSettings.Enabled);
             _fpfcSettings.AddChangedListener(fpfcSettings_Changed);
             ScoreUIController.InitData data = new ScoreUIController.InitData(scoreDisplayType: ScoreUIController.ScoreDisplayType.MultipliedScore);
             _scoreUIController.SetField("_initData", data);
@@ -121,6 +122,7 @@ namespace ScoreSaber.Features.Replays.Legacy {
 
             _presentation.SuppressFpfcCameraInput(_desktopCamera);
             _presentation.SuppressFpfcCameraInput(_spectatorCamera);
+            _presentation.ReleaseFpfcCursor(_fpfcSettings.Enabled);
 
             if (_keyframes.Count < 2) {
                 return;

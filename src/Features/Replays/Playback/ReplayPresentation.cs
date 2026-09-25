@@ -21,6 +21,9 @@ namespace ScoreSaber.Features.Replays.Playback {
         private AudioListener _replayListener;
         private bool _replayListenerWasEnabled;
         private bool _createdReplayListener;
+        private bool _cursorReleased;
+        private CursorLockMode _previousCursorLockState;
+        private bool _previousCursorVisible;
 
         public ReplayPresentation(PlayerVRControllersManager controllers) {
             _controllers = controllers;
@@ -89,7 +92,22 @@ namespace ScoreSaber.Features.Replays.Playback {
         public void UpdateCameraWorldPose(Vector3 position, Quaternion rotation) =>
             _camera2Source.UpdateWorld(position, rotation);
 
+        public void ReleaseFpfcCursor(bool fpfcEnabled) {
+            if (!fpfcEnabled) return;
+            if (!_cursorReleased) {
+                _previousCursorLockState = Cursor.lockState;
+                _previousCursorVisible = Cursor.visible;
+                _cursorReleased = true;
+            }
+            if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;
+            if (!Cursor.visible) Cursor.visible = true;
+        }
+
         public void Dispose() {
+            if (_cursorReleased) {
+                Cursor.lockState = _previousCursorLockState;
+                Cursor.visible = _previousCursorVisible;
+            }
             _camera2Source.Dispose();
             foreach (var pair in _fpfcControllerStates) {
                 if (pair.Key != null) pair.Key.enabled = pair.Value;

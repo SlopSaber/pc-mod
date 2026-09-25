@@ -134,6 +134,7 @@ namespace ScoreSaber.Features.Replays.Playback {
             if (Mathf.Abs(time - audioTimeSyncController.songTime) <= 0.001f) return;
 
             var _audioTimeSyncController = audioTimeSyncController; // UMBRAMEGALUL
+            _seekInterop.RequestNoodleReprocess();
             HarmonyPatches.CutSoundEffectOverride.Buffer = true;
             CancelAllHitSounds();
             bool wasPlaying = audioTimeSyncController.IsPlaying();

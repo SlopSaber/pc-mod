@@ -1,14 +1,18 @@
 ﻿using IPA.Utilities.Async;
 using ScoreSaber.Core.Configuration;
+using IPA.Loader;
 using ScoreSaber.Core.Gameplay;
 using ScoreSaber.Features.Replays.Format;
 using ScoreSaber.Features.ScoreSubmission.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading.Tasks;
 using UnityEngine;
+using Zenject;
 
 namespace ScoreSaber.Features.Replays {
     internal class ReplayLoader {
@@ -20,8 +24,9 @@ namespace ScoreSaber.Features.Replays {
         private readonly ReplayState _replayState;
         private readonly ScoreSubmissionService _scoreSubmissionService;
         private readonly SettingsService _settings;
+        private readonly DiContainer _container;
 
-        public ReplayLoader(PlayerDataModel playerDataModel, MenuTransitionsHelper menuTransitionsHelper, EnvironmentsListModel environmentsListModel, ReplayState replayState, ReplayFileCodec replayFileCodec, ScoreSubmissionService scoreSubmissionService, SettingsService settings) {
+        public ReplayLoader(PlayerDataModel playerDataModel, MenuTransitionsHelper menuTransitionsHelper, EnvironmentsListModel environmentsListModel, ReplayState replayState, ReplayFileCodec replayFileCodec, ScoreSubmissionService scoreSubmissionService, SettingsService settings, DiContainer container) {
 
             _playerDataModel = playerDataModel;
             _menuTransitionsHelper = menuTransitionsHelper;
@@ -30,6 +35,7 @@ namespace ScoreSaber.Features.Replays {
             _replayState = replayState;
             _scoreSubmissionService = scoreSubmissionService;
             _settings = settings;
+            _container = container;
         }
 
         public async Task Load(byte[] replay, BeatmapLevel beatmapLevel, BeatmapKey beatmapKey, GameplayModifiers modifiers, string playerName) {
@@ -53,7 +59,6 @@ namespace ScoreSaber.Features.Replays {
             });
 
             await IPA.Utilities.UnityGame.SwitchToMainThreadAsync();
-            _replayState.LoadLegacyReplay(keyframes);
 
             PlayerData playerData = _playerDataModel.playerData;
             PlayerSpecificSettings playerSettings = playerData.playerSpecificSettings;
@@ -61,24 +66,13 @@ namespace ScoreSaber.Features.Replays {
                 gameplayModifiers = new GameplayModifiers();
             }
 
-            _scoreSubmissionService.SuspendForReplay();
             ColorScheme colorScheme = playerData.colorSchemesSettings.GetOverrideColorScheme();
-            _menuTransitionsHelper.StartStandardLevel(
-                "Replay",
-                beatmapKey,
-                beatmapLevel,
-                playerData.overrideEnvironmentSettings,
-                colorScheme,
+            StartReplayLevel(beatmapLevel, beatmapKey, playerData.overrideEnvironmentSettings, colorScheme,
                 colorScheme != null ? colorScheme.ShouldOverrideLightshowColors() : playerData.colorSchemesSettings.ShouldOverrideLightshowColors(),
-                gameplayModifiers,
-                playerSettings,
-                null,
-                _environmentsListModel,
-                new GameplayAdditionalInformation("Exit Replay"),
-                null,
-                null,
-                ReplayEnd,
-                null);
+                gameplayModifiers, playerSettings, () => {
+                    _replayState.LoadLegacyReplay(keyframes);
+                    _scoreSubmissionService.SuspendForReplay();
+                });
         }
 
         private static Z.SavedData DeserializeLegacyReplay(byte[] decompressed) {
@@ -121,7 +115,6 @@ namespace ScoreSaber.Features.Replays {
 
         private async Task StartReplay(ReplayFile replay, BeatmapLevel beatmapLevel, BeatmapKey beatmapKey) {
             await IPA.Utilities.UnityGame.SwitchToMainThreadAsync();
-            _replayState.LoadReplay(replay);
 
             PlayerData playerData = _playerDataModel.playerData;
             PlayerSpecificSettings localPlayerSettings = playerData.playerSpecificSettings;
@@ -163,23 +156,62 @@ namespace ScoreSaber.Features.Replays {
                 useRecordedPlayerSettings);
             ColorScheme playerColorScheme = replayColorScheme ?? playerData.colorSchemesSettings.GetOverrideColorScheme();
 
-            _scoreSubmissionService.SuspendForReplay();
-            _menuTransitionsHelper.StartStandardLevel(
-                "Replay",
-                beatmapKey,
-                beatmapLevel,
-                replayEnvironmentSettings ?? playerData.overrideEnvironmentSettings,
+            StartReplayLevel(beatmapLevel, beatmapKey, replayEnvironmentSettings ?? playerData.overrideEnvironmentSettings,
                 playerColorScheme,
                 replayColorScheme != null ? replayColorScheme.ShouldOverrideLightshowColors() : playerData.colorSchemesSettings.ShouldOverrideLightshowColors(),
                 ScoreSaberGameplayModifiers.FromCodes(replay.metadata.Modifiers, false).GameplayModifiers,
-                playerSettings,
-                null,
-                _environmentsListModel,
-                new GameplayAdditionalInformation("Exit Replay"),
-                null,
-                null,
-                ReplayEnd,
-                null);
+                playerSettings, () => {
+                    _replayState.LoadReplay(replay);
+                    _scoreSubmissionService.SuspendForReplay();
+                });
+        }
+
+        private void StartReplayLevel(BeatmapLevel beatmapLevel, BeatmapKey beatmapKey,
+            OverrideEnvironmentSettings environmentSettings, ColorScheme colorScheme, bool overrideLightshowColors,
+            GameplayModifiers gameplayModifiers, PlayerSpecificSettings playerSettings, Action beforeSceneSwitch) {
+            if (TryStartWithHeck(beatmapLevel, beatmapKey, environmentSettings, colorScheme,
+                overrideLightshowColors, gameplayModifiers, playerSettings, beforeSceneSwitch)) return;
+
+            _menuTransitionsHelper.StartStandardLevel(
+                "Replay", beatmapKey, beatmapLevel, environmentSettings, colorScheme, overrideLightshowColors,
+                gameplayModifiers, playerSettings, null, _environmentsListModel,
+                new GameplayAdditionalInformation("Exit Replay"), beforeSceneSwitch, null, ReplayEnd, null);
+        }
+
+        private bool TryStartWithHeck(BeatmapLevel beatmapLevel, BeatmapKey beatmapKey,
+            OverrideEnvironmentSettings environmentSettings, ColorScheme colorScheme, bool overrideLightshowColors,
+            GameplayModifiers gameplayModifiers, PlayerSpecificSettings playerSettings, Action beforeSceneSwitch) {
+            var assembly = PluginManager.GetPluginFromId("Heck")?.Assembly;
+            if (assembly == null) return false;
+            try {
+                var parametersType = assembly.GetType("Heck.PlayView.StartStandardLevelParameters", true);
+                var managerType = assembly.GetType("Heck.PlayView.PlayViewManager", true);
+                var constructor = parametersType.GetConstructors().Single(method => method.GetParameters().FirstOrDefault()?.Name == "gameMode");
+                var arguments = constructor.GetParameters().Select(parameter => parameter.Name switch {
+                    "gameMode" => (object)"Replay",
+                    "beatmapKey" => beatmapKey,
+                    "beatmapLevel" => beatmapLevel,
+                    "overrideEnvironmentSettings" => environmentSettings,
+                    "overrideColorScheme" => colorScheme,
+                    "playerOverrideLightshowColors" => overrideLightshowColors,
+                    "gameplayModifiers" => gameplayModifiers,
+                    "playerSpecificSettings" => playerSettings,
+                    "environmentsListModel" => _environmentsListModel,
+                    "gameplayAdditionalInformation" => new GameplayAdditionalInformation("Exit Replay"),
+                    "beforeSceneSwitchToGameplayCallback" => beforeSceneSwitch,
+                    "levelFinishedCallback" => (Action<StandardLevelScenesTransitionSetupData, LevelCompletionResults>)ReplayEnd,
+                    "practiceSettings" or "afterSceneSwitchToGameplayCallback" or "levelRestartedCallback" or "beatmapLevelData" => null,
+                    _ => throw new NotSupportedException($"Unsupported Heck replay launch parameter: {parameter.Name}")
+                }).ToArray();
+                var startParameters = constructor.Invoke(arguments);
+                var manager = _container.Resolve(managerType);
+                managerType.GetMethod("Init", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(manager, new object[] { startParameters, false });
+                Plugin.Log.Info("Replay launch routed through Heck play views");
+                return true;
+            } catch (Exception ex) {
+                Plugin.Log.Warn($"Heck replay settings unavailable: {ex}");
+                return false;
+            }
         }
 
         private void ReplayEnd(StandardLevelScenesTransitionSetupData standardLevelSceneSetupData, LevelCompletionResults levelCompletionResults) {

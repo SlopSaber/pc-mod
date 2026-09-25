@@ -179,6 +179,10 @@ namespace ScoreSaber.Features.Replays.Playback {
             if (!_loggedCameraPosition && audioTimeSyncController.songTime >= 5f) {
                 _loggedCameraPosition = true;
                 Plugin.Log.Info($"Replay view at {audioTimeSyncController.songTime:0.0}s: recordedHead={pos}, camera={_desktopCamera.transform.position}, origin={originParentTransform.position}, mask=0x{_desktopCamera.cullingMask:X8}");
+                var activeNotes = Resources.FindObjectsOfTypeAll<GameNoteController>()
+                    .Where(note => note != null && note.gameObject.activeInHierarchy).ToArray();
+                Plugin.Log.Info($"Replay notes at 5s: count={activeNotes.Length}; samples={string.Join("; ", activeNotes.Take(4).Select(note => $"{note.name} pos={note.noteTransform.position} layer={note.gameObject.layer} renderers={note.GetComponentsInChildren<Renderer>().Count(renderer => renderer.enabled)}"))}");
+                Plugin.Log.Info($"Replay cameras at 5s: {string.Join("; ", Resources.FindObjectsOfTypeAll<Camera>().Where(camera => camera != null && camera.isActiveAndEnabled).Take(12).Select(camera => $"{camera.name} pos={camera.transform.position} depth={camera.depth:0.##} mask=0x{camera.cullingMask:X8} clear={camera.clearFlags} target={(camera.targetTexture != null ? "texture" : "screen")}"))}");
             }
 
             DidUpdatePose?.Invoke(activePose);

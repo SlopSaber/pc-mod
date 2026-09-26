@@ -22,6 +22,8 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
         private readonly LiveChatFloatingViewController _viewController;
 
         private FloatingScreen _screen;
+        private Material _backgroundMaterial;
+        private Material _handleMaterial;
         private Vector3 _baseScale = Vector3.one;
         private float _appliedOverlayScale = -1f;
         private IReadOnlyList<LiveChatEntry> _pendingMessages = Array.Empty<LiveChatEntry>();
@@ -88,6 +90,14 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
             if (_screen != null) {
                 UnityEngine.Object.Destroy(_screen.gameObject);
                 _screen = null;
+            }
+            if (_backgroundMaterial != null) {
+                UnityEngine.Object.Destroy(_backgroundMaterial);
+                _backgroundMaterial = null;
+            }
+            if (_handleMaterial != null) {
+                UnityEngine.Object.Destroy(_handleMaterial);
+                _handleMaterial = null;
             }
         }
 
@@ -172,7 +182,9 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
             }
 
             if (_visible == shouldShow) {
-                _screen.gameObject.SetActive(shouldShow);
+                if (_screen.gameObject.activeSelf != shouldShow) {
+                    _screen.gameObject.SetActive(shouldShow);
+                }
                 return;
             }
 
@@ -246,7 +258,8 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
 
             Image background = _screen.GetComponent<Image>();
             if (background != null) {
-                background.material = CreateNoGlowMaterial(Color.white);
+                _backgroundMaterial = CreateNoGlowMaterial(Color.white);
+                background.material = _backgroundMaterial;
                 background.color = new Color(0f, 0f, 0f, 0.5f);
                 background.raycastTarget = false;
             }
@@ -261,7 +274,8 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
 
             Renderer renderer = handleObject?.GetComponent<Renderer>();
             if (renderer != null) {
-                renderer.material = CreateNoGlowMaterial(Color.clear);
+                _handleMaterial = CreateNoGlowMaterial(Color.clear);
+                renderer.material = _handleMaterial;
             }
         }
 

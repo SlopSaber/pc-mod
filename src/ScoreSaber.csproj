@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <ProjectGuid>{844132E4-CDFC-49D3-950D-38F62ED8B513}</ProjectGuid>
@@ -32,7 +32,7 @@
     <ScoreSaberTargetVersion Condition="'$(ScoreSaberTargetVersion)' == '' AND '$(Platform)' == 'BS1.40.0'">1.40.0</ScoreSaberTargetVersion>
     <ScoreSaberTargetVersion Condition="'$(ScoreSaberTargetVersion)' == '' AND '$(Platform)' == 'BS1.42.0'">1.42.0</ScoreSaberTargetVersion>
     <ScoreSaberTargetVersion Condition="'$(ScoreSaberTargetVersion)' == ''">$(ScoreSaberDefaultTargetVersion)</ScoreSaberTargetVersion>
-    <BeatSaberDir Condition="'$(BeatSaberDir)' == '' AND '$(ScoreSaberTargetVersion)' == '1.45.0'">D:\BSManager\BSInstances\1.45.1</BeatSaberDir>
+    <BeatSaberDir Condition="'$(BeatSaberDir)' == '' AND '$(ScoreSaberTargetVersion)' == '1.45.0'">D:\BSManager\BSInstances\1.45.2</BeatSaberDir>
     <FrameworkPathOverride Condition="'$(BeatSaberDir)' != ''">$(BeatSaberDir)\Beat Saber_Data\Managed</FrameworkPathOverride>
     <ImportBSMTTargets>true</ImportBSMTTargets>
     <CopyPDB>false</CopyPDB>

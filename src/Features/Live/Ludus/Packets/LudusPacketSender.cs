@@ -8,13 +8,11 @@ using System.Collections.Generic;
 
 namespace ScoreSaber.Features.Live.Ludus.Packets {
     internal sealed class LudusPacketSender {
-        private readonly Action<byte[]> _send;
         private readonly Func<Func<byte[]>, bool> _sendDeferred;
         private readonly ScoreSaberClock _clock;
         private ulong _outgoingSequence = 1;
 
-        internal LudusPacketSender(Action<byte[]> send, Func<Func<byte[]>, bool> sendDeferred, ScoreSaberClock clock) {
-            _send = send;
+        internal LudusPacketSender(Func<Func<byte[]>, bool> sendDeferred, ScoreSaberClock clock) {
             _sendDeferred = sendDeferred;
             _clock = clock;
         }
@@ -35,56 +33,84 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             bool publicLivePresenceOptOut,
             List<LiveMod> mods) {
 
-            _send(LudusProto.EncodeConnect(
+            string sessionId = session.SessionId;
+            string sessionKey = session.SessionKey;
+            string playerId = session.PlayerId;
+            List<LiveMod> ownedMods = CopyMods(mods);
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodeConnect(
                 string.Empty,
-                session.SessionId,
-                session.SessionKey,
+                sessionId,
+                sessionKey,
                 string.Empty,
-                session.PlayerId,
+                playerId,
                 platform,
                 gameVersion,
                 clientVersion,
                 initialRoomContext,
                 publicLivePresenceOptOut,
-                mods,
-                NowUnixMs(),
-                NextSequence()));
+                ownedMods,
+                clientTimeUnixMs,
+                sequence));
         }
 
         internal void Heartbeat(string connectionId) {
-            _send(LudusProto.EncodeHeartbeat(LastReceivedSequence, NowUnixMs(), NextSequence(), connectionId));
+            ulong lastReceivedSequence = LastReceivedSequence;
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodeHeartbeat(lastReceivedSequence, clientTimeUnixMs, sequence, connectionId));
         }
 
         internal void SetRoomContext(LudusRoomContextType roomContext, string tournamentId, List<LiveMod> mods, string connectionId) {
-            _send(LudusProto.EncodeSetRoomContext(roomContext, tournamentId, mods, NowUnixMs(), NextSequence(), connectionId));
+            List<LiveMod> ownedMods = CopyMods(mods);
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodeSetRoomContext(roomContext, tournamentId, ownedMods, clientTimeUnixMs, sequence, connectionId));
         }
 
         internal void SetClientType(LudusClientType clientType, string connectionId) {
-            _send(LudusProto.EncodeSetClientType(clientType, NowUnixMs(), NextSequence(), connectionId));
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodeSetClientType(clientType, clientTimeUnixMs, sequence, connectionId));
         }
 
         internal void JoinRoom(string matchId, List<LiveMod> mods, string connectionId) {
-            _send(LudusProto.EncodeJoinRoom(matchId, string.Empty, mods, NowUnixMs(), NextSequence(), connectionId));
+            List<LiveMod> ownedMods = CopyMods(mods);
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodeJoinRoom(matchId, string.Empty, ownedMods, clientTimeUnixMs, sequence, connectionId));
         }
 
         internal void ReadyState(string matchId, bool ready, string connectionId) {
-            _send(LudusProto.EncodeReadyState(matchId, ready, NowUnixMs(), NextSequence(), connectionId));
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodeReadyState(matchId, ready, clientTimeUnixMs, sequence, connectionId));
         }
 
         internal void DownloadState(string matchId, LudusDownloadState state, string errorMessage, string connectionId) {
-            _send(LudusProto.EncodeDownloadState(matchId, state, errorMessage, NowUnixMs(), NextSequence(), connectionId));
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodeDownloadState(matchId, state, errorMessage, clientTimeUnixMs, sequence, connectionId));
         }
 
         internal void PromptResponse(CompeteOrganizerPrompt prompt, string matchId, string playerId, bool accepted, string connectionId) {
-            _send(LudusProto.EncodePromptResponse(prompt.CommandId, matchId, playerId, accepted, NowUnixMs(), NextSequence(), connectionId));
+            string commandId = prompt.CommandId;
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodePromptResponse(commandId, matchId, playerId, accepted, clientTimeUnixMs, sequence, connectionId));
         }
 
         internal void ChatMessage(string matchId, string text, string senderDisplayName, string connectionId) {
-            _send(LudusProto.EncodeChatMessage(matchId, text, senderDisplayName, NowUnixMs(), NextSequence(), connectionId));
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodeChatMessage(matchId, text, senderDisplayName, clientTimeUnixMs, sequence, connectionId));
         }
 
         internal void Presence(LudusPlayState playState, LudusDownloadState downloadState, string currentMatchId, string currentMapHash, string connectionId) {
-            _send(LudusProto.EncodePresence(playState, downloadState, currentMatchId, currentMapHash, NowUnixMs(), NextSequence(), connectionId));
+            long clientTimeUnixMs = NowUnixMs();
+            ulong sequence = NextSequence();
+            _sendDeferred(() => LudusProto.EncodePresence(playState, downloadState, currentMatchId, currentMapHash, clientTimeUnixMs, sequence, connectionId));
         }
 
         internal bool ReplayPacket(ReplayStreamPacket packet, string connectionId) {
@@ -99,6 +125,17 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private ulong NextSequence() => _outgoingSequence++;
+
+        private static List<LiveMod> CopyMods(List<LiveMod> mods) {
+            if (mods == null) {
+                return null;
+            }
+            var ownedMods = new List<LiveMod>(mods.Count);
+            foreach (LiveMod mod in mods) {
+                ownedMods.Add(mod == null ? null : new LiveMod { Id = mod.Id, Version = mod.Version });
+            }
+            return ownedMods;
+        }
 
         private long NowUnixMs() => _clock.UnixTimeMilliseconds();
     }

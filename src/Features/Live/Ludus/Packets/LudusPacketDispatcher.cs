@@ -25,7 +25,10 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         internal void Handle(TSession session, byte[] bytes) {
-            DecodedLudusEnvelope envelope = LudusProto.Decode(bytes);
+            HandleDecoded(session, LudusProto.Decode(bytes));
+        }
+
+        internal void HandleDecoded(TSession session, DecodedLudusEnvelope envelope) {
             if (envelope == null) {
                 return;
             }

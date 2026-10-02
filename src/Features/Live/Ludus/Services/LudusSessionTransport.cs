@@ -1,4 +1,5 @@
 using ScoreSaber.Core;
+using ScoreSaber.Features.Live.Protocol;
 using System;
 using System.Collections.Generic;
 using System.Net.WebSockets;
@@ -7,48 +8,78 @@ using System.Threading.Tasks;
 
 namespace ScoreSaber.Features.Live.Ludus.Services {
     internal sealed class LudusSessionTransport {
+        internal sealed class Connection {
+            internal readonly ClientWebSocket Socket = new ClientWebSocket();
+            internal readonly CancellationTokenSource Cancellation = new CancellationTokenSource();
+            internal Task ConnectTask = Task.CompletedTask;
+            internal Task ReceiveTask = Task.CompletedTask;
+            internal bool ConnectStarted;
+            internal bool ReceiveStarted;
+            private int _retired;
+
+            internal bool IsRetired => Volatile.Read(ref _retired) != 0;
+            internal void Retire() => Interlocked.Exchange(ref _retired, 1);
+        }
+
         private readonly LudusMainThreadQueue _mainThread;
         private readonly object _sendTaskLock = new object();
-        private ClientWebSocket _socket;
-        private CancellationTokenSource _cancellation;
+        private Connection _connection;
+        private int _generation;
         private Task _sendTask = Task.CompletedTask;
+        private Task _retirementTask = Task.CompletedTask;
 
         internal LudusSessionTransport(LudusMainThreadQueue mainThread) {
             _mainThread = mainThread;
         }
 
-        internal event Action<byte[]> MessageReceived;
+        internal event Action<DecodedLudusEnvelope> MessageReceived;
         internal event Action<string> ReceiveFailed;
         internal event Action<string> SendFailed;
         internal event Action<string> ReconnectRequested;
         internal event Action Disconnected;
 
-        internal bool IsOpen => _socket != null && _socket.State == WebSocketState.Open;
-        internal CancellationToken Token => _cancellation?.Token ?? CancellationToken.None;
+        internal bool IsOpen => _connection != null && !_connection.IsRetired && _connection.Socket.State == WebSocketState.Open;
+        internal CancellationToken Token => _connection?.Cancellation.Token ?? CancellationToken.None;
 
-        internal void Prepare() {
-            DisposeSocket();
-            _cancellation = new CancellationTokenSource();
-            _socket = new ClientWebSocket();
-        }
-
-        internal Task ConnectAsync(Uri uri) {
-            return _socket.ConnectAsync(uri, Token);
-        }
-
-        internal void StartReceiveLoop() {
-            ReceiveLoop(_socket, _cancellation).RunTask();
-        }
-
-        internal void Send(byte[] bytes) {
-            if (bytes == null || bytes.Length == 0) {
-                return;
-            }
-
-            ClientWebSocket socket = _socket;
-            CancellationTokenSource cancellation = _cancellation;
+        internal Connection Prepare() {
+            int generation = RetireCurrentConnection();
             lock (_sendTaskLock) {
-                QueueSendTask(SendAfter(PendingSendTask(), socket, cancellation, bytes));
+                if (generation != _generation) {
+                    throw new OperationCanceledException("Ludus connection preparation was replaced.");
+                }
+                _connection = new Connection();
+                _generation++;
+                return _connection;
+            }
+        }
+
+        internal bool IsCurrent(Connection connection) {
+            lock (_sendTaskLock) {
+                return connection != null && !connection.IsRetired && ReferenceEquals(_connection, connection);
+            }
+        }
+
+        internal Task ConnectAsync(Connection connection, Uri uri) {
+            lock (_sendTaskLock) {
+                if (!IsCurrent(connection)) {
+                    return Task.FromCanceled(new CancellationToken(true));
+                }
+                if (!connection.ConnectStarted) {
+                    connection.ConnectStarted = true;
+                    connection.ConnectTask = Task.Run(() => connection.Socket.ConnectAsync(uri, connection.Cancellation.Token));
+                }
+                return connection.ConnectTask;
+            }
+        }
+
+        internal void StartReceiveLoop(Connection connection) {
+            lock (_sendTaskLock) {
+                if (!IsCurrent(connection) || connection.ReceiveStarted) {
+                    return;
+                }
+                connection.ReceiveStarted = true;
+                connection.ReceiveTask = Task.Run(() => ReceiveLoop(connection));
+                connection.ReceiveTask.RunTask();
             }
         }
 
@@ -57,46 +88,100 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                 return false;
             }
 
-            ClientWebSocket socket = _socket;
-            CancellationTokenSource cancellation = _cancellation;
             lock (_sendTaskLock) {
-                QueueSendTask(SendAfter(PendingSendTask(), socket, cancellation, bytesFactory));
+                Connection connection = _connection;
+                if (connection == null || connection.IsRetired) {
+                    return false;
+                }
+                Task previousSend = _sendTask;
+                Task sendTask = previousSend.ContinueWith(
+                    completed => SendAfter(connection, bytesFactory),
+                    CancellationToken.None,
+                    TaskContinuationOptions.None,
+                    TaskScheduler.Default).Unwrap();
+                _sendTask = sendTask;
+                sendTask.ContinueWith(completed => {
+                    lock (_sendTaskLock) {
+                        if (ReferenceEquals(_sendTask, completed)) {
+                            _sendTask = Task.CompletedTask;
+                        }
+                    }
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                sendTask.RunTask();
+                return true;
             }
-
-            return true;
         }
 
-        internal void DisposeSocket() {
-            CancellationTokenSource cancellation = _cancellation;
+        internal void DisposeSocket() => RetireCurrentConnection();
+
+        private int RetireCurrentConnection() {
+            Connection connection;
+            int generation;
+            var cancellationComplete = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_sendTaskLock) {
+                generation = ++_generation;
+                connection = _connection;
+                if (connection == null) {
+                    return generation;
+                }
+                _connection = null;
+                connection.Retire();
+                Task previousRetirement = _retirementTask;
+                Task sends = _sendTask;
+                Task retirementTask = Task.Run(async () => {
+                    await cancellationComplete.Task.ConfigureAwait(false);
+                    await RetireConnection(connection, sends, previousRetirement).ConfigureAwait(false);
+                });
+                _retirementTask = retirementTask;
+                retirementTask.ContinueWith(completed => {
+                    lock (_sendTaskLock) {
+                        if (ReferenceEquals(_retirementTask, completed)) {
+                            _retirementTask = Task.CompletedTask;
+                        }
+                    }
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                retirementTask.RunTask();
+            }
+
             try {
-                cancellation?.Cancel();
+                connection.Cancellation.Cancel();
             } catch (Exception ex) {
                 Plugin.Log.Warn($"Failed to cancel ludus socket: {ex.Message}");
+            } finally {
+                cancellationComplete.TrySetResult(true);
+            }
+            return generation;
+        }
+
+        private async Task RetireConnection(Connection connection, Task sends, Task previousRetirement) {
+            try {
+                await Task.WhenAll(connection.ConnectTask, connection.ReceiveTask, sends).ConfigureAwait(false);
+            } catch {
             }
 
             try {
-                _socket?.Dispose();
+                connection.Socket.Dispose();
             } catch (Exception ex) {
-                Plugin.Log.Warn($"Failed to close ludus socket: {ex.Message}");
+                string message = ex.Message;
+                _mainThread.Enqueue(() => Plugin.Log.Warn($"Failed to close ludus socket: {message}"));
             } finally {
-                cancellation?.Dispose();
+                connection.Cancellation.Dispose();
             }
 
-            _socket = null;
-            _cancellation = null;
-            lock (_sendTaskLock) {
-                _sendTask = Task.CompletedTask;
+            try {
+                await previousRetirement.ConfigureAwait(false);
+            } catch {
             }
         }
 
-        private async Task ReceiveLoop(ClientWebSocket socket, CancellationTokenSource cancellation) {
+        private async Task ReceiveLoop(Connection connection) {
             byte[] buffer = new byte[64 * 1024];
             var message = new List<byte>();
 
             try {
-                while (socket.State == WebSocketState.Open) {
-                    WebSocketReceiveResult result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellation.Token);
-                    if (result.MessageType == WebSocketMessageType.Close) {
+                while (!connection.IsRetired && connection.Socket.State == WebSocketState.Open) {
+                    WebSocketReceiveResult result = await connection.Socket.ReceiveAsync(new ArraySegment<byte>(buffer), connection.Cancellation.Token).ConfigureAwait(false);
+                    if (connection.IsRetired || result.MessageType == WebSocketMessageType.Close) {
                         break;
                     }
 
@@ -107,33 +192,31 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                     if (result.EndOfMessage) {
                         byte[] bytes = message.ToArray();
                         message.Clear();
-                        _mainThread.Enqueue(() => MessageReceived?.Invoke(bytes));
+                        string parseError;
+                        DecodedLudusEnvelope envelope = LudusProto.Decode(bytes, out parseError);
+                        EnqueueCurrent(connection, () => {
+                            if (parseError != null) {
+                                Plugin.Log.Warn($"Failed to parse ludus protobuf frame: {parseError}");
+                            }
+                            MessageReceived?.Invoke(envelope);
+                        });
                     }
                 }
             } catch (OperationCanceledException) {
             } catch (Exception ex) {
-                _mainThread.Enqueue(() => ReceiveFailed?.Invoke(ex.Message));
+                string messageText = ex.Message;
+                EnqueueCurrent(connection, () => ReceiveFailed?.Invoke(messageText));
             }
 
-            _mainThread.Enqueue(() => {
-                if (_socket == socket) {
-                    Disconnected?.Invoke();
-                }
-            });
+            EnqueueCurrent(connection, () => Disconnected?.Invoke());
         }
 
-        private async Task SendAfter(Task previousSend, ClientWebSocket socket, CancellationTokenSource cancellation, Func<byte[]> bytesFactory) {
-            try {
-                await previousSend.ConfigureAwait(false);
-            } catch {
-            }
-
-            if (socket != _socket || cancellation != _cancellation) {
+        private async Task SendAfter(Connection connection, Func<byte[]> bytesFactory) {
+            if (connection.IsRetired) {
                 return;
             }
-
-            if (!CanSendToSocket(socket, cancellation)) {
-                _mainThread.Enqueue(() => ReconnectRequested?.Invoke("socket is not open"));
+            if (connection.Socket.State != WebSocketState.Open) {
+                EnqueueCurrent(connection, () => ReconnectRequested?.Invoke("socket is not open"));
                 return;
             }
 
@@ -141,72 +224,36 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             try {
                 bytes = bytesFactory();
             } catch (Exception ex) {
-                _mainThread.Enqueue(() => SendFailed?.Invoke(ex.Message));
+                string message = ex.Message;
+                EnqueueCurrent(connection, () => SendFailed?.Invoke(message));
                 return;
             }
-
-            await SendAsync(socket, cancellation, bytes).ConfigureAwait(false);
-        }
-
-        private async Task SendAfter(Task previousSend, ClientWebSocket socket, CancellationTokenSource cancellation, byte[] bytes) {
-            try {
-                await previousSend.ConfigureAwait(false);
-            } catch {
-            }
-
-            await SendAsync(socket, cancellation, bytes).ConfigureAwait(false);
-        }
-
-        private async Task SendAsync(ClientWebSocket socket, CancellationTokenSource cancellation, byte[] bytes) {
-            if (!CanSendToSocket(socket, cancellation)) {
-                _mainThread.Enqueue(() => ReconnectRequested?.Invoke("socket is not open"));
-                return;
-            }
-
-            if (bytes == null || bytes.Length == 0) {
-                return;
-            }
-
-            if (socket != _socket || cancellation != _cancellation) {
+            if (connection.IsRetired || bytes == null || bytes.Length == 0) {
                 return;
             }
 
             try {
-                // replay streaming can queue many chunks, and ClientWebSocket allows one send at a time.
-                await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Binary, true, cancellation.Token).ConfigureAwait(false);
+                // ClientWebSocket permits only one physical send at a time.
+                await connection.Socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Binary, true, connection.Cancellation.Token).ConfigureAwait(false);
             } catch (OperationCanceledException) {
             } catch (ObjectDisposedException) {
             } catch (Exception ex) {
-                _mainThread.Enqueue(() => {
-                    SendFailed?.Invoke(ex.Message);
-                    ReconnectRequested?.Invoke(ex.Message);
+                string message = ex.Message;
+                EnqueueCurrent(connection, () => {
+                    SendFailed?.Invoke(message);
+                    if (IsCurrent(connection)) {
+                        ReconnectRequested?.Invoke(message);
+                    }
                 });
             }
         }
 
-        private static bool CanSendToSocket(ClientWebSocket socket, CancellationTokenSource cancellation) {
-            return socket != null && cancellation != null && socket.State == WebSocketState.Open;
-        }
-
-        private Task PendingSendTask() {
-            if (_sendTask.IsCompleted) {
-                _sendTask = Task.CompletedTask;
-            }
-
-            return _sendTask;
-        }
-
-        private void QueueSendTask(Task sendTask) {
-            _sendTask = sendTask;
-            sendTask.ContinueWith(task => {
-                lock (_sendTaskLock) {
-                    if (ReferenceEquals(_sendTask, task)) {
-                        _sendTask = Task.CompletedTask;
-                    }
+        private void EnqueueCurrent(Connection connection, Action action) {
+            _mainThread.Enqueue(() => {
+                if (IsCurrent(connection)) {
+                    action();
                 }
-            }, TaskContinuationOptions.ExecuteSynchronously);
-            sendTask.RunTask();
+            });
         }
-
     }
 }

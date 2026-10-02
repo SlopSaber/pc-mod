@@ -197,13 +197,23 @@ namespace ScoreSaber.Features.Live.Protocol {
         }
 
         internal static DecodedLudusEnvelope Decode(byte[] bytes) {
+            string parseError;
+            DecodedLudusEnvelope envelope = Decode(bytes, out parseError);
+            if (parseError != null) {
+                Plugin.Log.Warn($"Failed to parse ludus protobuf frame: {parseError}");
+            }
+            return envelope;
+        }
+
+        internal static DecodedLudusEnvelope Decode(byte[] bytes, out string parseError) {
+            parseError = null;
             ProtoLudusEnvelope frame;
             try {
                 using (var stream = new MemoryStream(bytes)) {
                     frame = Serializer.Deserialize<ProtoLudusEnvelope>(stream);
                 }
             } catch (Exception ex) {
-                Plugin.Log.Warn($"Failed to parse ludus protobuf frame: {ex.Message}");
+                parseError = ex.Message;
                 return null;
             }
 

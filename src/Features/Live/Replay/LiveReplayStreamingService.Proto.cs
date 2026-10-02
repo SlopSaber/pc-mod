@@ -84,7 +84,7 @@ namespace ScoreSaber.Features.Live.Replay {
             return new ReplayExtension {
                 Id = entry.Id,
                 Version = (uint)entry.Version,
-                Payload = entry.Payload
+                Payload = entry.Payload == null ? null : (byte[])entry.Payload.Clone()
             };
         }
 

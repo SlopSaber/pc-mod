@@ -66,6 +66,8 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
         private string _currentMatchId;
         private string _currentTournamentId;
         private Task _connectTask;
+        private int _connectionAttempt;
+        private bool _disposed;
         private float _heartbeatIntervalSeconds = 5f;
         private float _nextHeartbeatAt;
         private float _nextMainThreadQueueBacklogLogAt;
@@ -99,7 +101,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             _replayStreamingService = replayStreamingService;
             _mainThread = new LudusMainThreadQueue();
             _transport = new LudusSessionTransport(_mainThread);
-            _outgoing = new LudusPacketSender(_transport.Send, _transport.SendDeferred, clock);
+            _outgoing = new LudusPacketSender(_transport.SendDeferred, clock);
             _mapStartCountdown = new LudusMapStartCountdown(_mainThread, () => _tournamentRoom?.Id ?? string.Empty, clock);
             _commandSession = new CompeteLudusCommandSession(
                 () => LocalPlayerId,
@@ -150,7 +152,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                 status => StatusChanged?.Invoke(status));
             _packetDispatcher = CompeteLudusPacketDispatcher.CreateDefault(_commandSession, _chatMessages, clock);
 
-            _transport.MessageReceived += bytes => _packetDispatcher.Handle(_packetContext, bytes);
+            _transport.MessageReceived += envelope => _packetDispatcher.HandleDecoded(_packetContext, envelope);
             _transport.ReceiveFailed += ReceiveFailed;
             _transport.SendFailed += SendFailed;
             _transport.ReconnectRequested += reason => ScheduleReconnect(reason, null);
@@ -191,6 +193,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
         }
 
         public void Dispose() {
+            _disposed = true;
             _gameSessionService.LoginStatusChanged -= GameSessionStatusChanged;
             _replayStreamingService.AttachLudus(null);
             Disconnect();
@@ -233,6 +236,8 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
         }
 
         private void ResetSessionConnection(bool clearChatMessages) {
+            _connectionAttempt++;
+            _connectTask = null;
             _active = false;
             _roomContext = LudusRoomContextType.LudusRoomContextTypeUnspecified;
             _reconnectScheduled = false;
@@ -240,19 +245,17 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             _reconnectAttempt = 0;
             _pendingTournamentRoom = null;
             _tournamentRoom = null;
-            UpdateViewerList(null);
-            if (clearChatMessages) {
-                ClearChatMessages();
-            }
             _nextLudusUrl = null;
-            _mapStartCountdown.Cancel();
-
-            _transport.DisposeSocket();
             _connectionId = null;
             _clientType = LudusClientType.LudusClientTypePlayer;
             _currentMatchId = string.Empty;
             _currentTournamentId = string.Empty;
-            _connectTask = null;
+            _transport.DisposeSocket();
+            UpdateViewerList(null);
+            if (clearChatMessages) {
+                ClearChatMessages();
+            }
+            _mapStartCountdown.Cancel();
         }
 
         private void RestartDefaultSessionConnection() {
@@ -472,6 +475,9 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
         }
 
         private Task EnsureSessionConnection(CancellationToken cancellationToken) {
+            if (_disposed) {
+                return Task.FromCanceled(new CancellationToken(true));
+            }
             if (IsConnectedToLudus) {
                 return Task.CompletedTask;
             }
@@ -480,18 +486,49 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                 return _connectTask;
             }
 
-            _connectTask = OpenSessionConnection(cancellationToken);
-            return _connectTask;
+            var completion = new TaskCompletionSource<bool>();
+            int attempt = ++_connectionAttempt;
+            _connectTask = completion.Task;
+            CompleteSessionConnection(completion, attempt, cancellationToken).RunTask();
+            return completion.Task;
         }
 
-        private async Task OpenSessionConnection(CancellationToken cancellationToken) {
+        private async Task CompleteSessionConnection(TaskCompletionSource<bool> completion, int attempt, CancellationToken cancellationToken) {
+            try {
+                await OpenSessionConnection(attempt, cancellationToken);
+                completion.TrySetResult(true);
+            } catch (OperationCanceledException) {
+                completion.TrySetCanceled();
+            } catch (Exception ex) {
+                completion.TrySetException(ex);
+            }
+        }
+
+        private bool IsCurrentConnectionAttempt(int attempt) => !_disposed && attempt == _connectionAttempt;
+
+        private void CheckConnectionAttempt(int attempt) {
+            if (!IsCurrentConnectionAttempt(attempt)) {
+                throw new OperationCanceledException("Ludus connection attempt was replaced.");
+            }
+        }
+
+        private async Task OpenSessionConnection(int attempt, CancellationToken cancellationToken) {
+            CheckConnectionAttempt(attempt);
             if (IsConnectedToLudus) {
                 return;
             }
 
             bool hadCachedSession = _gameSessionService.HasAuthenticatedSession;
             bool forceAuthenticationRefresh = ShouldRefreshAuthenticationForConnection();
-            bool authenticated = await _gameSessionService.EnsureAuthenticated(forceAuthenticationRefresh, cancellationToken);
+            bool authenticated;
+            try {
+                authenticated = await _gameSessionService.EnsureAuthenticated(forceAuthenticationRefresh, cancellationToken);
+            } catch {
+                CheckConnectionAttempt(attempt);
+                throw;
+            }
+            CheckConnectionAttempt(attempt);
+            cancellationToken.ThrowIfCancellationRequested();
             bool usedCachedSessionAfterRefreshFailure = false;
             if (!authenticated && hadCachedSession && _gameSessionService.HasAuthenticatedSession && !AuthenticationRefreshIsRequired()) {
                 _nextConnectionAuthRefreshAttemptAtUtc = DateTime.UtcNow + GameSessionRefreshRetryDelay;
@@ -504,20 +541,33 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             }
             MarkAuthenticationAvailable(forceAuthenticationRefresh && !usedCachedSessionAfterRefreshFailure);
 
-            PrepareConnectionAttempt();
+            LudusSessionTransport.Connection connection = PrepareConnectionAttempt();
 
             try {
+                CheckConnectionAttempt(attempt);
                 string url = NormalizeLudusUrl(_nextLudusUrl ?? ScoreSaberEndpoints.LudusUrl);
                 Plugin.Log.Info($"Ludus: Connecting to {url}");
-                await ConnectSessionTransport(new Uri(url), cancellationToken);
+                await ConnectSessionTransport(connection, new Uri(url), cancellationToken);
+                CheckConnectionAttempt(attempt);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_transport.IsCurrent(connection)) {
+                    throw new OperationCanceledException("Ludus connection was replaced.");
+                }
                 _reconnectAttempt = 0;
                 SendConnect();
-                _transport.StartReceiveLoop();
+                _transport.StartReceiveLoop(connection);
             } catch (OperationCanceledException) {
-                _transport.DisposeSocket();
+                if (_transport.IsCurrent(connection)) {
+                    _transport.DisposeSocket();
+                }
                 throw;
             } catch (Exception ex) {
+                CheckConnectionAttempt(attempt);
+                if (!_transport.IsCurrent(connection)) {
+                    throw new OperationCanceledException("Ludus connection was replaced.");
+                }
                 _transport.DisposeSocket();
+                CheckConnectionAttempt(attempt);
                 ScheduleReconnect(ex.Message, null);
                 Plugin.Log.Warn($"Ludus connection failed: {ex.Message}");
                 throw;
@@ -542,8 +592,8 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             }
         }
 
-        private async Task ConnectSessionTransport(Uri uri, CancellationToken cancellationToken) {
-            Task connectTask = _transport.ConnectAsync(uri);
+        private async Task ConnectSessionTransport(LudusSessionTransport.Connection connection, Uri uri, CancellationToken cancellationToken) {
+            Task connectTask = _transport.ConnectAsync(connection, uri);
             Task completed = await Task.WhenAny(connectTask, Task.Delay(SessionConnectionTimeoutMs, cancellationToken));
             if (completed == connectTask) {
                 await connectTask;
@@ -649,7 +699,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                 LudusInstalledMods.List());
         }
 
-        private void PrepareConnectionAttempt() {
+        private LudusSessionTransport.Connection PrepareConnectionAttempt() {
             _active = true;
             _outgoing.ResetSequences();
             _connectionId = null;
@@ -657,7 +707,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             _nextHeartbeatAt = 0f;
             _reconnectScheduled = false;
             _nextReconnectAt = 0f;
-            _transport.Prepare();
+            return _transport.Prepare();
         }
 
         private void ScheduleReconnect(string reason, float? delayOverrideSeconds) {
@@ -685,6 +735,8 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
         }
 
         private void ResetSocketSessionContext() {
+            _connectionAttempt++;
+            _connectTask = null;
             _transport.DisposeSocket();
             _connectionId = null;
             _clientType = LudusClientType.LudusClientTypePlayer;

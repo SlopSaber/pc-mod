@@ -13,6 +13,7 @@ using ScoreSaber.Features.ScoreSubmission.Services;
 using ScoreSaber.Features.Players.Profile;
 using SiraUtil.Web;
 using SiraUtil.Zenject;
+using System;
 using System.Diagnostics;
 using System.Reflection;
 using UnityEngine;
@@ -24,6 +25,9 @@ namespace ScoreSaber {
 
         internal static IPALogger Log { get; private set; }
         internal static Plugin Instance { get; private set; }
+        internal static event Action ReplayLoadsRetired;
+        internal bool IsEnabled { get; private set; }
+        internal int ReplayLoadVersion { get; private set; }
 
         internal static SettingsService SettingsService { get; private set; }
 
@@ -65,6 +69,9 @@ namespace ScoreSaber {
 
         [OnEnable]
         public void OnEnable() {
+            IsEnabled = true;
+            ReplayLoadVersion++;
+            ReplayLoadsRetired?.Invoke();
             MainMenuAwaiter.MainMenuInitializing += MainMenuInit;
             SettingsService.Load();
             ReplayState.Reset();
@@ -77,6 +84,9 @@ namespace ScoreSaber {
 
         [OnDisable]
         public void OnDisable() {
+            IsEnabled = false;
+            ReplayLoadVersion++;
+            ReplayLoadsRetired?.Invoke();
             MainMenuAwaiter.MainMenuInitializing -= MainMenuInit;
             harmony?.UnpatchSelf();
             harmony = null;

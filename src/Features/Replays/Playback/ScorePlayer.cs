@@ -19,7 +19,7 @@ namespace ScoreSaber.Features.Replays.Playback {
             _scoreController = scoreController;
             _gameEnergyCounter = gameEnergyCounter;
             _scoreEvents = file.scoreKeyframes;
-            _scoringNoteEventTimes = file.noteKeyframes
+            _scoringNoteEventTimes = file.playbackIndexes?.ScoringNoteEventTimes ?? file.noteKeyframes
                 .Where(ReplayTimeSearch.IsScoringNoteEvent)
                 .Select(nk => nk.Time)
                 .OrderBy(time => time)

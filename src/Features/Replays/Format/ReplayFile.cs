@@ -15,6 +15,7 @@ namespace ScoreSaber.Features.Replays.Format {
         internal List<PauseEvent> pauseKeyframes;
         internal List<WallEvent> wallKeyframes;
         internal byte[] hsvConfig;
+        internal ReplayPlaybackIndexes playbackIndexes;
 
         internal ReplayFile() {
 
@@ -30,6 +31,12 @@ namespace ScoreSaber.Features.Replays.Format {
         }
 
         internal void Mirror() {
+            MirrorFrames(poseKeyframes, noteKeyframes);
+            MirrorMetadata();
+            playbackIndexes = null;
+        }
+
+        internal static void MirrorFrames(List<VRPoseGroup> poseKeyframes, List<NoteEvent> noteKeyframes) {
             for (int i = 0; i < poseKeyframes.Count; ++i) {
                 var keyframe = poseKeyframes[i];
                 keyframe.Mirror();
@@ -40,6 +47,9 @@ namespace ScoreSaber.Features.Replays.Format {
                 keyframe.Mirror();
                 noteKeyframes[i] = keyframe;
             }
+        }
+
+        internal void MirrorMetadata() {
             Color? leftSaberColor = metadata.LeftSaberColor;
             metadata.LeftSaberColor = metadata.RightSaberColor;
             metadata.RightSaberColor = leftSaberColor;

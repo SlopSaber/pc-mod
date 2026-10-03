@@ -4,6 +4,7 @@ using IPA.Utilities.Async;
 using ScoreSaber.Features.Players.Services;
 using ScoreSaber.Core;
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
@@ -24,6 +25,7 @@ namespace ScoreSaber.Features.Replays.UI {
 
         private byte[] _serializedReplay;
         private int _waitForReplayVersion;
+        private CancellationTokenSource _replayLoadCancellation;
 
         public ResultsViewReplayButtonController(ResultsViewController resultsViewController, GameSessionService gameSessionService, ReplayLoader replayLoader, ReplayService replayService) {
 
@@ -60,12 +62,14 @@ namespace ScoreSaber.Features.Replays.UI {
         }
 
         private void ResultsViewController_restartButtonPressedEvent(ResultsViewController obj) {
+            _replayLoadCancellation?.Cancel();
 
             _serializedReplay = null;
             _waitForReplayVersion++;
         }
 
         private void ResultsViewController_continueButtonPressedEvent(ResultsViewController obj) {
+            _replayLoadCancellation?.Cancel();
 
             _serializedReplay = null;
             _waitForReplayVersion++;
@@ -85,6 +89,7 @@ namespace ScoreSaber.Features.Replays.UI {
         }
 
         public void Dispose() {
+            _replayLoadCancellation?.Cancel();
 
             _waitForReplayVersion++;
             _resultsViewController.didActivateEvent -= ResultsViewController_didActivateEvent;
@@ -101,12 +106,20 @@ namespace ScoreSaber.Features.Replays.UI {
         }
 
         private async Task WatchReplay() {
-
+            int version = _waitForReplayVersion;
+            _replayLoadCancellation?.Cancel();
+            var cancellation = new CancellationTokenSource();
+            _replayLoadCancellation = cancellation;
             try {
-                await _replayLoader.Load(_serializedReplay, _beatmapLevel, _beatmapKey, _levelCompletionResults.gameplayModifiers, _gameSessionService.LocalPlayerInfo.playerName);
+                await _replayLoader.Load(_serializedReplay, _beatmapLevel, _beatmapKey, _levelCompletionResults.gameplayModifiers, _gameSessionService.LocalPlayerInfo.playerName, cancellation.Token);
+            } catch (OperationCanceledException) {
             } catch (Exception ex) {
+                if (version != _waitForReplayVersion || cancellation.IsCancellationRequested) return;
                 Plugin.Log.Error($"Failed to start replay: {ex}");
                 watchReplayButton.interactable = true;
+            } finally {
+                if (ReferenceEquals(_replayLoadCancellation, cancellation)) _replayLoadCancellation = null;
+                cancellation.Dispose();
             }
         }
     }

@@ -10,6 +10,7 @@ using ScoreSaber.Core;
 using ScoreSaber.Features.Leaderboards.UI.ScoreDetails;
 using ScoreSaber.Features.Players.Profile;
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using IPA.Utilities;
 using UnityEngine;
@@ -28,6 +29,8 @@ namespace ScoreSaber.Features.Leaderboards.UI {
         private BSMLParserParams _parserParams;
         private ProfileDetailView _profileDetailView;
         private bool _replayDownloading;
+        private bool _disposed;
+        private CancellationTokenSource _replayLoadCancellation;
 
         internal ScoreDetailView ScoreDetailView { get; }
 
@@ -104,29 +107,44 @@ namespace ScoreSaber.Features.Leaderboards.UI {
         private void StartReplay(ScoreMap score) => StartReplayAsync(score).RunTask();
 
         private async Task StartReplayAsync(ScoreMap score) {
+            if (_disposed) return;
+            _replayLoadCancellation?.Cancel();
+            var cancellation = new CancellationTokenSource();
+            _replayLoadCancellation = cancellation;
             CloseModals();
             _replayDownloading = true;
 
             try {
                 _panelView.SetPromptInfo("Downloading Replay...", true);
                 byte[] replay = await _replayQueryService.GetReplayData(score);
+                if (_disposed || cancellation.IsCancellationRequested) return;
                 _panelView.SetPromptInfo("Replay downloaded! Unpacking...", true);
-                await _replayLoader.Load(replay, score.Parent.BeatmapLevel, score.Parent.BeatmapKey, score.GameplayModifiers, score.Score.Player.Name);
+                await _replayLoader.Load(replay, score.Parent.BeatmapLevel, score.Parent.BeatmapKey, score.GameplayModifiers, score.Score.Player.Name, cancellation.Token);
+                if (_disposed || cancellation.IsCancellationRequested) return;
                 _panelView.ClearPrompt();
+            } catch (OperationCanceledException) {
             } catch (ReplayVersionException ex) {
+                if (_disposed || cancellation.IsCancellationRequested) return;
                 _panelView.SetPromptError("Unsupported replay version", false);
                 Plugin.Log.Error($"Failed to start replay (unsupported version): {ex}");
             } catch (Exception ex) {
+                if (_disposed || cancellation.IsCancellationRequested) return;
                 _panelView.SetPromptError("Failed to start replay! Error written to log.", false);
                 Plugin.Log.Error($"Failed to start replay: {ex}");
+            } finally {
+                if (ReferenceEquals(_replayLoadCancellation, cancellation)) {
+                    _replayLoadCancellation = null;
+                    _replayDownloading = false;
+                }
+                cancellation.Dispose();
             }
-
-            _replayDownloading = false;
         }
 
         private void CloseModals() => _parserParams?.EmitEvent("close-modals");
 
         public void Dispose() {
+            _disposed = true;
+            _replayLoadCancellation?.Cancel();
             ScoreDetailView.startReplay -= StartReplay;
             ScoreDetailView.showProfile -= ShowProfile;
         }

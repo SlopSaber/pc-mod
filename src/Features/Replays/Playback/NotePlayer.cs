@@ -29,7 +29,7 @@ namespace ScoreSaber.Features.Replays.Playback {
             _burstSliderHeadNotePool = basicBeatmapObjectManager._burstSliderHeadGameNotePoolContainer;
             _burstSliderNotePool = basicBeatmapObjectManager._burstSliderGameNotePoolContainer;
             _bombNotePool = basicBeatmapObjectManager._bombNotePoolContainer;
-            _sortedNoteEvents = file.noteKeyframes.OrderBy(nk => nk.Time).ToArray();
+            _sortedNoteEvents = file.playbackIndexes?.SortedNoteEvents ?? file.noteKeyframes.OrderBy(nk => nk.Time).ToArray();
             _replayFile = file;
         }
 

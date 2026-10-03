@@ -20,12 +20,12 @@ namespace ScoreSaber.Features.Replays.Playback {
             _comboController = comboController;
             _comboUIController = comboUIController;
             _comboEvents = file.comboKeyframes;
-            _scoringNoteEventTimes = file.noteKeyframes
+            _scoringNoteEventTimes = file.playbackIndexes?.ScoringNoteEventTimes ?? file.noteKeyframes
                 .Where(ReplayTimeSearch.IsScoringNoteEvent)
                 .Select(ne => ne.Time)
                 .OrderBy(time => time)
                 .ToArray();
-            _comboLossTimes = file.comboKeyframes
+            _comboLossTimes = file.playbackIndexes?.ComboLossTimes ?? file.comboKeyframes
                 .Where(ce => ce.Combo == 0)
                 .Select(ce => ce.Time)
                 .OrderBy(time => time)

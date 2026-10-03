@@ -71,7 +71,7 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                 if (File.Exists($@"{_replayPath}\{playerId}-{_songHash}-{_difficulty}-{_characteristic}.dat")) {
                     return true;
                 }
-                string songName = _songName.ReplaceInvalidChars().Truncate(155);
+                string songName = ReplayExtensions.Truncate(ReplayExtensions.ReplaceInvalidChars(_songName), 155);
                 if (File.Exists($@"{_replayPath}\{playerId}-{songName}-{_difficulty}-{_characteristic}-{_songHash}.dat")) {
                     return true;
                 }

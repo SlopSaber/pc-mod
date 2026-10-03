@@ -66,7 +66,11 @@ namespace ScoreSaber.Core.Platform {
         }
 
         private static string CompletePreparation(PreparationRequest request) {
-            PreparationResult result = QueuePreparation(request).GetAwaiter().GetResult();
+            Task<PreparationResult> task = QueuePreparation(request);
+            if (!task.IsCompleted) {
+                ((IAsyncResult)task).AsyncWaitHandle.WaitOne();
+            }
+            PreparationResult result = task.GetAwaiter().GetResult();
             if (result.Error != null) {
                 ExceptionDispatchInfo.Capture(result.Error).Throw();
             }

@@ -28,7 +28,7 @@ namespace ScoreSaber.Features.Replays.Services {
             }
 
             if (scoreMap.HasLocalReplay) {
-                byte[] replay = _replayStorageService.ReadLocalReplay(scoreMap.Parent.BeatmapLevel, scoreMap.Parent.BeatmapKey, scoreMap);
+                byte[] replay = await _replayStorageService.ReadLocalReplayAsync(scoreMap.Parent.BeatmapLevel, scoreMap.Parent.BeatmapKey, scoreMap);
                 if (replay != null) {
                     return replay;
                 }

@@ -49,7 +49,7 @@ namespace ScoreSaber.Features.ScoreSubmission.Services {
             Plugin.Log.Debug($"Upload payload size: data={payload.EncryptedScoreData.Length} chars, replay={replay.Replay.Length} bytes");
             ScoreUploadResult result = await UploadWithRetries(payload.EncryptedScoreData, payload.ScoreData.InfoHash, replay.Replay, statusChanged, notifyAuthenticationStatus, cancellationToken);
             if (result.Success && saveLocalReplay) {
-                _replayStorageService.SaveLocalReplay(payload.ScoreData, beatmapKey, replay.Replay);
+                await _replayStorageService.SaveLocalReplayAsync(payload.ScoreData, beatmapKey, replay.Replay);
             }
 
             return result;

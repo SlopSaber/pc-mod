@@ -2,9 +2,83 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ScoreSaber.Core.Api.UploadTrust {
     internal static class UploadTrustHeaderBuilder {
+        private static readonly object PreparationLock = new object();
+        private static Task _preparationTail = Task.CompletedTask;
+
+        internal static Task<Dictionary<string, string>> BuildUploadHeadersAsync(
+            string sessionId,
+            string sessionKey,
+            string playerId,
+            string uploadVersionHash,
+            string encryptedData,
+            byte[] ownedReplay,
+            UploadTrustSession trust,
+            long timestamp) {
+
+            var request = new PreparationRequest(sessionId, sessionKey, playerId,
+                uploadVersionHash, encryptedData, ownedReplay, trust, timestamp);
+            if (ExecutionContext.IsFlowSuppressed()) {
+                return QueuePreparation(request);
+            }
+
+            using (ExecutionContext.SuppressFlow()) {
+                return QueuePreparation(request);
+            }
+        }
+
+        private static Task<Dictionary<string, string>> QueuePreparation(PreparationRequest request) {
+            lock (PreparationLock) {
+                Task<Dictionary<string, string>> task = _preparationTail.ContinueWith(
+                    (_, state) => ((PreparationRequest)state).Run(), request,
+                    CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                _preparationTail = task;
+                _ = task.ContinueWith(completed => {
+                    lock (PreparationLock) {
+                        if (ReferenceEquals(_preparationTail, completed)) {
+                            _preparationTail = Task.CompletedTask;
+                        }
+                    }
+                }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                return task;
+            }
+        }
+
+        private sealed class PreparationRequest {
+            private readonly string _sessionId;
+            private readonly string _sessionKey;
+            private readonly string _playerId;
+            private readonly string _uploadVersionHash;
+            private readonly string _encryptedData;
+            private readonly byte[] _replay;
+            private readonly UploadTrustSession _trust;
+            private readonly long _timestamp;
+
+            internal PreparationRequest(string sessionId, string sessionKey, string playerId,
+                string uploadVersionHash, string encryptedData, byte[] ownedReplay,
+                UploadTrustSession trust, long timestamp) {
+
+                _sessionId = sessionId;
+                _sessionKey = sessionKey;
+                _playerId = playerId;
+                _uploadVersionHash = uploadVersionHash;
+                _encryptedData = encryptedData;
+                _replay = ownedReplay;
+                _trust = trust == null ? null : new UploadTrustSession(trust.BuildId,
+                    trust.BuildCredential, trust.UploadVersionHash, trust.RequiresBuildId);
+                _timestamp = timestamp;
+            }
+
+            internal Dictionary<string, string> Run() {
+                return BuildUploadHeaders(_sessionId, _sessionKey, _playerId,
+                    _uploadVersionHash, _encryptedData, _replay, _trust, _timestamp);
+            }
+        }
+
         internal static Dictionary<string, string> BuildUploadHeaders(
             string sessionId,
             string sessionKey,

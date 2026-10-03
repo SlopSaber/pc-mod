@@ -92,20 +92,23 @@ namespace ScoreSaber.Core.Api {
             }
 
             try {
+                var ownedReplay = (byte[])replay.Clone();
                 var form = new WWWForm();
                 form.AddField("data", uploadData);
-                form.AddBinaryData("zr", replay, "replay.dat", "application/octet-stream");
+                form.AddBinaryData("zr", ownedReplay, "replay.dat", "application/octet-stream");
 
-                Dictionary<string, string> headers = UploadTrustHeaderBuilder.BuildUploadHeaders(
+                Dictionary<string, string> headers = await UploadTrustHeaderBuilder.BuildUploadHeadersAsync(
                     sessionId.ToString(),
                     session.SessionKey,
                     session.PlayerId,
                     uploadVersionHash,
                     uploadData,
-                    replay,
+                    ownedReplay,
                     session.UploadTrust,
                     _clock.UnixTimeMilliseconds() / 1000L);
 
+                await IPA.Utilities.UnityGame.SwitchToMainThreadAsync();
+                cancellationToken.ThrowIfCancellationRequested();
                 Plugin.Log.Debug("ScoreSaber API POST /api/v2/game/upload using Unity multipart");
                 string responseBody = await _http.PostAsync(
                     "/api/v2/game/upload",

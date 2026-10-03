@@ -1,6 +1,7 @@
 using ScoreSaber.Core.Configuration;
 using ScoreSaber.Features.Leaderboards.Domain;
 using ScoreSaber.Features.Players.Services;
+using ScoreSaber.Features.Players.Domain;
 using System;
 using Newtonsoft.Json.Linq;
 using System.Threading;
@@ -49,10 +50,12 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             }
 
             bool filterAroundCountry = ShouldFilterAroundCountry(scope);
+            string playerId = _gameSessionService.LocalPlayerInfo.playerId;
             LeaderboardMap leaderboard;
             try {
                 leaderboard = await _leaderboardQueryService.GetLeaderboardData(beatmapLevel, beatmapKey, scope, page, filterAroundCountry, cancellationToken);
             } catch (GeneratedApiException ex) when (IsLeaderboardNotFoundResponse(ex)) {
+                cancellationToken.ThrowIfCancellationRequested();
                 return LeaderboardScreenState.Failed(
                     LeaderboardScreenStatus.NoLeaderboard,
                     "Play this level to create a ScoreSaber leaderboard",
@@ -62,16 +65,31 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                     false,
                     page);
             } catch (GeneratedApiException ex) when (IsNoPlayerScoreResponse(ex)) {
+                cancellationToken.ThrowIfCancellationRequested();
                 return LeaderboardScreenState.Failed(LeaderboardScreenStatus.NoPlayerScore, GetApiMessage(ex), true, null, string.Empty, false, page);
             } catch (GeneratedApiException ex) {
+                cancellationToken.ThrowIfCancellationRequested();
                 return LeaderboardScreenState.Failed(LeaderboardScreenStatus.Error, GetApiMessage(ex), true, null, string.Empty, false, page);
             }
 
-            return CreateLoadedState(leaderboard, scope, filterAroundCountry, page);
+            cancellationToken.ThrowIfCancellationRequested();
+            return CreateLoadedState(leaderboard, scope, filterAroundCountry, page, playerId);
         }
 
-        private LeaderboardScreenState CreateLoadedState(LeaderboardMap leaderboard, LeaderboardScreenScope scope, bool filterAroundCountry, int page) {
-            int playerScoreIndex = GetPlayerScoreIndex(leaderboard);
+        internal Func<bool> CapturePublicationGuard(CancellationToken cancellationToken) {
+            GameSession session = _gameSessionService.GameSession;
+            LocalPlayerInfo localPlayer = _gameSessionService.LocalPlayerInfo;
+            string playerId = session?.PlayerId;
+            string sessionId = session?.SessionId;
+            string sessionKey = session?.SessionKey;
+            string localPlayerId = localPlayer?.playerId;
+            return () => !cancellationToken.IsCancellationRequested
+                && ReferenceEquals(_gameSessionService.GameSession, session) && ReferenceEquals(_gameSessionService.LocalPlayerInfo, localPlayer)
+                && session?.PlayerId == playerId && session?.SessionId == sessionId && session?.SessionKey == sessionKey && localPlayer?.playerId == localPlayerId;
+        }
+
+        private LeaderboardScreenState CreateLoadedState(LeaderboardMap leaderboard, LeaderboardScreenScope scope, bool filterAroundCountry, int page, string playerId) {
+            int playerScoreIndex = Array.FindIndex(leaderboard.Scores, score => score.Score.Player.Id == playerId);
             bool canPage = CanPageScope(scope, filterAroundCountry);
             string rankedStatus = GetRankedStatus(leaderboard.LeaderboardInfo.Leaderboard);
             if (scope == LeaderboardScreenScope.AroundPlayer && playerScoreIndex == -1 && !filterAroundCountry) {
@@ -109,8 +127,6 @@ namespace ScoreSaber.Features.Leaderboards.Services {
 
             return string.IsNullOrEmpty(ex.Message) ? "Failed to load leaderboard" : ex.Message;
         }
-
-        private int GetPlayerScoreIndex(LeaderboardMap leaderboard) => Array.FindIndex(leaderboard.Scores, score => score.Score.Player.Id == _gameSessionService.LocalPlayerInfo.playerId);
 
         private static string GetRankedStatus(LeaderboardDetails leaderboardInfo) => leaderboardInfo.Status switch {
             LeaderboardStatus.Ranked => leaderboardInfo.PositiveModifiers ? "Ranked (DA = +0.02, GN +0.04)" : "Ranked (modifiers disabled)",

@@ -156,11 +156,7 @@ namespace ScoreSaber.Core.Api {
                 scores = new LeaderboardScoresSnapshot();
             }
 
-            return new LeaderboardSnapshot {
-                Leaderboard = await leaderboardTask,
-                Scores = scores.Scores,
-                PlayerScore = scores.PlayerScore
-            };
+            return LeaderboardSnapshot.Owned(await leaderboardTask, scores.Scores, scores.PlayerScore);
         }
 
         private static string GetHttpErrorMessage(HttpErrorException exception) {

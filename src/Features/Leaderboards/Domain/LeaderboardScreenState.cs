@@ -1,3 +1,5 @@
+using System;
+
 namespace ScoreSaber.Features.Leaderboards.Domain {
     internal enum LeaderboardScreenScope {
         Global,
@@ -16,6 +18,8 @@ namespace ScoreSaber.Features.Leaderboards.Domain {
     }
 
     internal class LeaderboardScreenState {
+        internal Func<bool> PublicationGuard { private get; set; }
+        internal bool CanPublish => PublicationGuard == null || PublicationGuard();
         internal LeaderboardScreenStatus Status { get; private set; }
         internal LeaderboardMap Leaderboard { get; private set; }
         internal int PlayerScoreIndex { get; private set; }

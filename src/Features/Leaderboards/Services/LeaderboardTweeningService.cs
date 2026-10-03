@@ -46,38 +46,52 @@ namespace ScoreSaber.Features.Leaderboards.Services {
         }
 
         public void FadeLayoutGroup(string id, float from, float to, float time, HorizontalOrVerticalLayoutGroup layoutGroup) {
-            if (layoutGroup == null) {
+            FadeLayoutGroup(id, from, to, time, layoutGroup, null);
+        }
+
+        internal void FadeLayoutGroup(string id, float from, float to, float time, HorizontalOrVerticalLayoutGroup layoutGroup, Func<bool> isCurrent) {
+            if (isCurrent?.Invoke() == false || layoutGroup == null) {
                 return;
             }
 
             CanvasRenderer[] canvasRenderers = layoutGroup.transform.GetComponentsInChildren<CanvasRenderer>(true);
+            if (isCurrent?.Invoke() == false) return;
 
             float startAlpha = _activeTweens.ContainsKey(id) && canvasRenderers.Length > 0 ? canvasRenderers[0].GetAlpha() : from;
             float endAlpha = to;
+            if (isCurrent?.Invoke() == false) return;
 
             if (_activeTweens.ContainsKey(id)) {
                 KillTween(id);
+                if (isCurrent?.Invoke() == false) return;
             }
 
             foreach (CanvasRenderer canvasRenderer in canvasRenderers) {
+                if (isCurrent?.Invoke() == false) return;
                 SetRendererAlpha(canvasRenderer, startAlpha);
+                if (isCurrent?.Invoke() == false) return;
             }
 
             var tween = new FloatTween(startAlpha, endAlpha, update => {
                 foreach (CanvasRenderer canvasRenderer in canvasRenderers) {
+                    if (isCurrent?.Invoke() == false) return;
                     SetRendererAlpha(canvasRenderer, update);
+                    if (isCurrent?.Invoke() == false) return;
                 }
             }, time, EaseType.Linear, 0f);
 
             tween.onCompleted = () => {
                 ForgetTween(id, tween);
-                if (layoutGroup == null) {
+                if (isCurrent?.Invoke() == false || layoutGroup == null) {
                     return;
                 }
 
                 layoutGroup.gameObject.SetActive(to > 0);
+                if (isCurrent?.Invoke() == false) return;
                 foreach (CanvasRenderer canvasRenderer in canvasRenderers) {
+                    if (isCurrent?.Invoke() == false) return;
                     SetRendererAlpha(canvasRenderer, endAlpha);
+                    if (isCurrent?.Invoke() == false) return;
                 }
             };
             tween.onKilled = () => {
@@ -85,7 +99,8 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             };
 
             layoutGroup.gameObject.SetActive(true);
-            CreateTween(id, tween, layoutGroup);
+            if (isCurrent?.Invoke() == false) return;
+            CreateTween(id, tween, layoutGroup, isCurrent);
         }
 
         public void CreateImageViewFade(string id, float from, float to, float duration, ImageView imageView) {
@@ -173,6 +188,11 @@ namespace ScoreSaber.Features.Leaderboards.Services {
         }
 
         public void ClearTweensByPrefix(string prefix) {
+            ClearTweensByPrefix(prefix, null);
+        }
+
+        internal void ClearTweensByPrefix(string prefix, Func<bool> isCurrent) {
+            if (isCurrent?.Invoke() == false) return;
             var keysToRemove = new List<string>();
             foreach (string key in _activeTweens.Keys) {
                 if (key.StartsWith(prefix, StringComparison.Ordinal)) {
@@ -181,12 +201,20 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             }
 
             foreach (string key in keysToRemove) {
+                if (isCurrent?.Invoke() == false) return;
                 KillTween(key);
+                if (isCurrent?.Invoke() == false) return;
             }
         }
 
         private void CreateTween(string id, Tween tween, object owner) {
+            CreateTween(id, tween, owner, null);
+        }
+
+        private void CreateTween(string id, Tween tween, object owner, Func<bool> isCurrent) {
+            if (isCurrent?.Invoke() == false) return;
             KillTween(id);
+            if (isCurrent?.Invoke() == false) return;
             _activeTweens[id] = tween;
             _timeTweeningManager.AddTween(tween, owner ?? this);
         }

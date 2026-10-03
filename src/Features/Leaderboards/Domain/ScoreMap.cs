@@ -35,5 +35,14 @@ namespace ScoreSaber.Features.Leaderboards.Domain {
             }
         }
 
+        internal ScoreMap(PreparedLeaderboardScore prepared, LeaderboardInfoMap leaderboardInfo) {
+            Score = prepared.Score;
+            ModifierText = prepared.ModifierText;
+            Parent = leaderboardInfo;
+            HasLocalReplay = prepared.HasLocalReplay;
+            Accuracy = prepared.Accuracy;
+            GameplayModifiers = prepared.Modifiers?.CreateMap().GameplayModifiers;
+        }
+
     }
 }

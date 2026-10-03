@@ -16,6 +16,7 @@ namespace ScoreSaber.Features.Leaderboards {
         private readonly LeaderboardAvatarHost _avatarHost;
 
         private CancellationTokenSource _avatarCancellation;
+        private bool _disposed;
 
         public LeaderboardPresentationController(
             PanelView panelView,
@@ -30,19 +31,26 @@ namespace ScoreSaber.Features.Leaderboards {
             _avatarHost = avatarHost;
         }
 
-        public void Initialize() => _leaderboardSession.StateChanged += LeaderboardStateChanged;
+        public void Initialize() {
+            _leaderboardSession.StateChanged += LeaderboardStateChanged;
+            _panelView.Disabled += _leaderboardSession.CancelPendingRefresh;
+        }
 
         private void LeaderboardStateChanged(LeaderboardScreenState state) {
+            if (!CanPublish(state)) return;
             Plugin.Log.Debug($"Leaderboard UI state: {state.Status}, loaded={state.IsLoaded}, scores={state.Leaderboard?.Scores?.Length ?? 0}");
+            if (!CanPublish(state)) return;
             _leaderboardViewController.SetRankColumnOffset(LeaderboardRankLayout.OffsetFor(state.Status == LeaderboardScreenStatus.Loaded ? state.Leaderboard : null));
+            if (!CanPublish(state)) return;
             _leaderboardViewController.ApplyState(state);
-            if (!_overlayController.IsParsed) {
+            if (!CanPublish(state) || !_overlayController.IsParsed) {
                 return;
             }
 
             switch (state.Status) {
                 case LeaderboardScreenStatus.Loading:
-                    ResetAvatarCancellation();
+                    ResetAvatarCancellation(state);
+                    if (!CanPublish(state)) return;
                     _avatarHost.ClearAvatars();
                     break;
                 case LeaderboardScreenStatus.Loaded:
@@ -55,22 +63,29 @@ namespace ScoreSaber.Features.Leaderboards {
         }
 
         private void ShowLoadedLeaderboard(LeaderboardScreenState state) {
+            if (!CanPublish(state)) return;
             _panelView.DismissLoadingPrompt();
+            if (!CanPublish(state)) return;
             _panelView.SetRankedStatus(state.RankedStatus);
-            if (state.Leaderboard == null) {
+            if (!CanPublish(state) || state.Leaderboard == null) {
                 return;
             }
 
             if (_avatarCancellation == null) {
-                ResetAvatarCancellation();
+                ResetAvatarCancellation(state);
             }
+            if (!CanPublish(state)) return;
             _overlayController.ApplyAvatarLayout(state.Leaderboard);
+            if (!CanPublish(state)) return;
             _avatarHost.LoadAvatars(state.Leaderboard, _avatarCancellation.Token);
         }
 
         private void ShowLeaderboardError(LeaderboardScreenState state) {
+            if (!CanPublish(state)) return;
             _avatarHost.ClearAvatars();
+            if (!CanPublish(state)) return;
             _panelView.DismissLoadingPrompt();
+            if (!CanPublish(state)) return;
             _panelView.SetRankedStatus(GetRankedStatusText(state));
         }
 
@@ -82,16 +97,36 @@ namespace ScoreSaber.Features.Leaderboards {
             return "Unavailable";
         }
 
-        private void ResetAvatarCancellation() {
-            _avatarCancellation?.Cancel();
-            _avatarCancellation?.Dispose();
-            _avatarCancellation = new CancellationTokenSource();
+        private bool CanPublish(LeaderboardScreenState state) => !_disposed && state.CanPublish;
+
+        private void ResetAvatarCancellation(LeaderboardScreenState state) {
+            CancellationTokenSource previous = _avatarCancellation;
+            _avatarCancellation = null;
+            try {
+                previous?.Cancel();
+            } finally {
+                previous?.Dispose();
+            }
+            if (CanPublish(state) && _avatarCancellation == null) {
+                _avatarCancellation = new CancellationTokenSource();
+            }
         }
 
         public void Dispose() {
-            _avatarCancellation?.Cancel();
-            _avatarCancellation?.Dispose();
+            _disposed = true;
+            CancellationTokenSource previous = _avatarCancellation;
+            _avatarCancellation = null;
             _leaderboardSession.StateChanged -= LeaderboardStateChanged;
+            _panelView.Disabled -= _leaderboardSession.CancelPendingRefresh;
+            try {
+                _leaderboardSession.CancelPendingRefresh();
+            } finally {
+                try {
+                    previous?.Cancel();
+                } finally {
+                    previous?.Dispose();
+                }
+            }
         }
     }
 }

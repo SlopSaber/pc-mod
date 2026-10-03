@@ -83,8 +83,10 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
         private bool IsLoaded {
             get => _isLoaded;
             set {
+                LeaderboardScreenState state = _pendingState;
                 _isLoaded = value;
                 NotifyPropertyChanged(nameof(IsLoaded));
+                if (!CanPublish(state)) return;
                 NotifyPropertyChanged(nameof(IsLoading));
             }
         }
@@ -192,29 +194,47 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
         }
 
         internal void ApplyState(LeaderboardScreenState state) {
+            if (!state.CanPublish) return;
             _pendingState = state;
-            BindTableSelection();
-            _leaderboardTweeningService.ClearTweensByPrefix("avatar");
-            _leaderboardTweeningService.ClearTweensByPrefix("leaderboard");
+            Func<bool> isCurrent = () => CanPublish(state);
+            BindTableSelection(state);
+            if (!CanPublish(state)) return;
+            _leaderboardTweeningService.ClearTweensByPrefix("avatar", isCurrent);
+            if (!CanPublish(state)) return;
+            _leaderboardTweeningService.ClearTweensByPrefix("leaderboard", isCurrent);
+            if (!CanPublish(state)) return;
             IsLoaded = state.IsLoaded;
+            if (!CanPublish(state)) return;
             UpEnabled = state.CanPageUp;
+            if (!CanPublish(state)) return;
             DownEnabled = state.CanPageDown;
+            if (!CanPublish(state)) return;
             ScoresActive = state.Status == LeaderboardScreenStatus.Loaded;
+            if (!CanPublish(state)) return;
             ErrorActive = state.Status != LeaderboardScreenStatus.Loading && state.Status != LeaderboardScreenStatus.Loaded;
+            if (!CanPublish(state)) return;
             ErrorTitle = ErrorActive ? GetErrorTitle(state.Status) : string.Empty;
+            if (!CanPublish(state)) return;
             ErrorText = ErrorActive ? state.ErrorText : string.Empty;
-            HidePlatformControls();
+            if (!CanPublish(state)) return;
+            HidePlatformControls(state);
 
-            if (_leaderboard == null) {
+            if (!CanPublish(state) || _leaderboard == null) {
                 return;
             }
 
             if (state.Status == LeaderboardScreenStatus.Loaded) {
-                _leaderboard.SetScores(CreateRows(state.Leaderboard), state.PlayerScoreIndex);
-                BindTableSelection();
-                ConfigureVisibleCells();
+                List<LeaderboardTableView.ScoreData> rows = CreateRows(state.Leaderboard, state);
+                if (!CanPublish(state)) return;
+                _leaderboard.SetScores(rows, state.PlayerScoreIndex);
+                if (!CanPublish(state)) return;
+                BindTableSelection(state);
+                if (!CanPublish(state)) return;
+                ConfigureVisibleCells(state);
+                if (!CanPublish(state)) return;
                 IsLoaded = true;
-                ApplyFade();
+                if (!CanPublish(state)) return;
+                ApplyFade(isCurrent);
                 return;
             }
 
@@ -223,14 +243,18 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
             }
         }
 
-        private List<LeaderboardTableView.ScoreData> CreateRows(LeaderboardMap leaderboard) {
+        private bool CanPublish(LeaderboardScreenState state) => state == null || (state.CanPublish && ReferenceEquals(_pendingState, state));
+
+        private List<LeaderboardTableView.ScoreData> CreateRows(LeaderboardMap leaderboard, LeaderboardScreenState state) {
             var rows = new List<LeaderboardTableView.ScoreData>();
             if (leaderboard == null) {
                 return rows;
             }
 
             foreach (ScoreMap scoreMap in leaderboard.Scores) {
+                if (!CanPublish(state)) return rows;
                 rows.Add(new LeaderboardTableView.ScoreData(scoreMap.Score.ModifiedScore, FormatPlayerName(scoreMap), scoreMap.Score.Rank, false));
+                if (!CanPublish(state)) return rows;
             }
 
             return rows;
@@ -258,14 +282,15 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
             _ => "ScoreSaber Unavailable"
         };
 
-        private void BindTableSelection() {
-            if (_leaderboard == null) {
+        private void BindTableSelection(LeaderboardScreenState state = null) {
+            if (!CanPublish(state) || _leaderboard == null) {
                 return;
             }
 
             if (_innerTable == null) {
                 LeaderboardTableView leaderboard = _leaderboard;
                 _innerTable = InnerTable(ref leaderboard);
+                if (!CanPublish(state)) return;
             }
 
             if (_innerTable == null) {
@@ -273,6 +298,7 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
             }
 
             _innerTable.selectionType = TableViewSelectionType.Single;
+            if (!CanPublish(state)) return;
             _innerTable.didSelectCellWithIdxEvent -= TableDidSelectCellWithIdx;
             _innerTable.didSelectCellWithIdxEvent += TableDidSelectCellWithIdx;
             _innerTable.didReloadDataEvent -= TableDidReloadData;
@@ -284,73 +310,89 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
             SelectScore(index);
         }
 
-        private void TableDidReloadData(TableView tableView) => ConfigureVisibleCells();
+        private void TableDidReloadData(TableView tableView) => ConfigureVisibleCells(_pendingState);
 
-        private void ConfigureVisibleCells() {
-            if (_innerTable == null) {
+        private void ConfigureVisibleCells(LeaderboardScreenState state) {
+            if (!CanPublish(state) || _innerTable == null) {
                 return;
             }
 
             foreach (TableCell cell in _innerTable.visibleCells) {
+                if (!CanPublish(state)) return;
                 if (!(cell is LeaderboardTableCell leaderboardCell)) {
                     continue;
                 }
 
-                EnableRichText(leaderboardCell);
-                ApplyPlayerNameLayout(leaderboardCell);
-                ApplySeparator(leaderboardCell);
-                ConfigureClickHandler(leaderboardCell);
+                EnableRichText(leaderboardCell, state);
+                if (!CanPublish(state)) return;
+                ApplyPlayerNameLayout(leaderboardCell, state);
+                if (!CanPublish(state)) return;
+                ApplySeparator(leaderboardCell, state);
+                if (!CanPublish(state)) return;
+                ConfigureClickHandler(leaderboardCell, state);
+                if (!CanPublish(state)) return;
             }
         }
 
-        private static void ApplySeparator(LeaderboardTableCell cell) {
+        private void ApplySeparator(LeaderboardTableCell cell, LeaderboardScreenState state) {
             Image separator = SeparatorImage(ref cell);
-            if (separator == null) {
+            if (!CanPublish(state) || separator == null) {
                 return;
             }
 
             separator.gameObject.SetActive(true);
+            if (!CanPublish(state)) return;
             separator.enabled = true;
         }
 
-        private void ConfigureClickHandler(LeaderboardTableCell cell) {
+        private void ConfigureClickHandler(LeaderboardTableCell cell, LeaderboardScreenState state) {
             LeaderboardRowClickHandler clickHandler = cell.gameObject.GetComponent<LeaderboardRowClickHandler>();
+            if (!CanPublish(state)) return;
             if (clickHandler == null) {
                 clickHandler = cell.gameObject.AddComponent<LeaderboardRowClickHandler>();
+                if (!CanPublish(state)) return;
             }
 
-            clickHandler.Configure(cell.idx, _innerTable, SeparatorImage(ref cell) as ImageView);
+            clickHandler.Configure(cell.idx, _innerTable, SeparatorImage(ref cell) as ImageView, () => CanPublish(state));
         }
 
-        private static void EnableRichText(LeaderboardTableCell cell) {
+        private void EnableRichText(LeaderboardTableCell cell, LeaderboardScreenState state) {
             TextMeshProUGUI playerNameText = PlayerNameText(ref cell);
-            if (playerNameText == null) {
+            if (!CanPublish(state) || playerNameText == null) {
                 return;
             }
 
             playerNameText.richText = true;
+            if (!CanPublish(state)) return;
             playerNameText.text = playerNameText.text;
+            if (!CanPublish(state)) return;
             playerNameText.SetVerticesDirty();
         }
 
-        private void ApplyPlayerNameLayout(LeaderboardTableCell cell) {
+        private void ApplyPlayerNameLayout(LeaderboardTableCell cell, LeaderboardScreenState state) {
+            Func<bool> isCurrent = () => CanPublish(state);
             TextMeshProUGUI playerNameText = PlayerNameText(ref cell);
-            if (playerNameText == null) {
+            if (!CanPublish(state) || playerNameText == null) {
                 return;
             }
 
             RectTransform nameTransform = playerNameText.rectTransform;
             LeaderboardPlayerNameLayout layout = nameTransform.GetComponent<LeaderboardPlayerNameLayout>();
+            if (!CanPublish(state)) return;
             if (layout == null) {
                 layout = nameTransform.gameObject.AddComponent<LeaderboardPlayerNameLayout>();
-                layout.Capture(nameTransform);
+                if (!CanPublish(state)) return;
+                layout.Capture(nameTransform, isCurrent);
+                if (!CanPublish(state)) return;
             }
 
-            layout.Apply(nameTransform, _rankColumnOffset);
+            layout.Apply(nameTransform, _rankColumnOffset, isCurrent);
         }
 
-        private void ApplyFade() {
-            _leaderboardTweeningService.FadeLayoutGroup($"leaderboard_fade_{_leaderboard.GetInstanceID()}", 0f, 1f, 0.5f, _mainHorizontal);
+        private void ApplyFade(Func<bool> isCurrent) {
+            string id = $"leaderboard_fade_{_leaderboard.GetInstanceID()}";
+            if (!isCurrent()) return;
+            _leaderboardTweeningService.FadeLayoutGroup(id, 0f, 1f, 0.5f, _mainHorizontal, isCurrent);
         }
 
         private void SelectScore(int index) => ScoreSelected?.Invoke(index);
@@ -432,9 +474,12 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
             return _countryIcon;
         }
 
-        private void HidePlatformControls() {
+        private void HidePlatformControls(LeaderboardScreenState state = null) {
+            if (!CanPublish(state)) return;
             _activePlatformLoadingControl = _platformLeaderboardViewController != null ? PlatformLoadingControl(ref _platformLeaderboardViewController) : null;
+            if (!CanPublish(state)) return;
             _activePlatformLoadingControl?.Hide();
+            if (!CanPublish(state)) return;
 
             IconSegmentedControl scopeSegmentedControl = _platformLeaderboardViewController != null ? PlatformScopeSegmentedControl(ref _platformLeaderboardViewController) : null;
             if (scopeSegmentedControl != null) {
@@ -507,21 +552,36 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
         private bool _captured;
 
         internal void Capture(RectTransform transform) {
-            if (_captured) {
+            Capture(transform, null);
+        }
+
+        internal void Capture(RectTransform transform, Func<bool> isCurrent) {
+            if (isCurrent?.Invoke() == false || _captured) {
                 return;
             }
 
-            _offsetMin = transform.offsetMin;
-            _offsetMax = transform.offsetMax;
+            Vector2 offsetMin = transform.offsetMin;
+            if (isCurrent?.Invoke() == false) return;
+            Vector2 offsetMax = transform.offsetMax;
+            if (isCurrent?.Invoke() == false) return;
+            _offsetMin = offsetMin;
+            _offsetMax = offsetMax;
             _captured = true;
         }
 
         internal void Apply(RectTransform transform, float offset) {
+            Apply(transform, offset, null);
+        }
+
+        internal void Apply(RectTransform transform, float offset, Func<bool> isCurrent) {
+            if (isCurrent?.Invoke() == false) return;
             if (!_captured) {
-                Capture(transform);
+                Capture(transform, isCurrent);
+                if (isCurrent?.Invoke() == false) return;
             }
 
             transform.offsetMin = new Vector2(_offsetMin.x + offset, _offsetMin.y);
+            if (isCurrent?.Invoke() == false) return;
             transform.offsetMax = _offsetMax;
         }
     }
@@ -538,20 +598,29 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
         private bool _isScaled;
 
         internal void Configure(int index, TableView tableView, ImageView separator) {
+            Configure(index, tableView, separator, null);
+        }
+
+        internal void Configure(int index, TableView tableView, ImageView separator, Func<bool> isCurrent) {
+            if (isCurrent?.Invoke() == false) return;
             _index = index;
             _tableView = tableView;
             _separator = separator;
 
             if (_graphic == null) {
                 _graphic = gameObject.GetComponent<Graphic>();
+                if (isCurrent?.Invoke() == false) return;
             }
 
             if (_graphic != null) {
                 _graphic.raycastTarget = true;
+                if (isCurrent?.Invoke() == false) return;
             }
 
             if (_separator != null && _separatorScale == Vector3.zero) {
-                _separatorScale = _separator.transform.localScale;
+                Vector3 separatorScale = _separator.transform.localScale;
+                if (isCurrent?.Invoke() == false) return;
+                _separatorScale = separatorScale;
             }
         }
 

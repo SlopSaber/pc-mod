@@ -114,19 +114,23 @@ namespace ScoreSaber.Features.Replays {
         }
 
         private static Task<PreparationResult> QueuePreparation(PreparationRequest request) {
+            return QueueOwnedPreparation(request.Run);
+        }
+
+        internal static Task<T> QueueOwnedPreparation<T>(Func<T> prepare) {
             if (ExecutionContext.IsFlowSuppressed()) {
-                return QueuePreparationWithoutContext(request);
+                return QueuePreparationWithoutContext(prepare);
             }
 
             using (ExecutionContext.SuppressFlow()) {
-                return QueuePreparationWithoutContext(request);
+                return QueuePreparationWithoutContext(prepare);
             }
         }
 
-        private static Task<PreparationResult> QueuePreparationWithoutContext(PreparationRequest request) {
+        private static Task<T> QueuePreparationWithoutContext<T>(Func<T> prepare) {
             lock (PreparationLock) {
-                Task<PreparationResult> task = _preparationTail.ContinueWith(
-                    (_, state) => ((PreparationRequest)state).Run(), request,
+                Task<T> task = _preparationTail.ContinueWith(
+                    (_, state) => ((Func<T>)state)(), prepare,
                     CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
                 _preparationTail = task;
                 _ = task.ContinueWith(completed => {

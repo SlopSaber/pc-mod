@@ -3,6 +3,10 @@ using System.Collections.Generic;
 namespace ScoreSaber.Core.Gameplay {
     internal static class ScoreSaberGameplayModifiers {
         internal static GameplayModifiersMap FromCodes(string[] modifiers, bool isPositiveModifiersEnabled) {
+            return Prepare(modifiers, isPositiveModifiersEnabled).CreateMap();
+        }
+
+        internal static PreparedGameplayModifiers Prepare(string[] modifiers, bool isPositiveModifiersEnabled) {
             double totalMultiplier = 1;
             var energyType = GameplayModifiers.EnergyType.Bar;
             var obstacleType = GameplayModifiers.EnabledObstacleType.All;
@@ -80,10 +84,7 @@ namespace ScoreSaber.Core.Gameplay {
                 }
             }
 
-            var gameplayModifiers = new GameplayModifiers(energyType, NF, IF, false, obstacleType, NB, false, SA, DA, songSpeed, NA, GN, PM, false, SC);
-            return new GameplayModifiersMap(gameplayModifiers) {
-                TotalMultiplier = totalMultiplier
-            };
+            return new PreparedGameplayModifiers(energyType, obstacleType, songSpeed, NF, IF, NB, DA, GN, NA, PM, SC, SA, totalMultiplier);
         }
 
         internal static List<string> ToCodeList(LevelCompletionResults results) {
@@ -114,6 +115,36 @@ namespace ScoreSaber.Core.Gameplay {
             if (condition) {
                 result.Add(code);
             }
+        }
+    }
+
+    internal sealed class PreparedGameplayModifiers {
+        private readonly GameplayModifiers.EnergyType _energyType;
+        private readonly GameplayModifiers.EnabledObstacleType _obstacleType;
+        private readonly GameplayModifiers.SongSpeed _songSpeed;
+        private readonly bool _noFail, _instaFail, _noBombs, _disappearingArrows, _ghostNotes, _noArrows, _proMode, _smallCubes, _strictAngles;
+        internal double TotalMultiplier { get; }
+
+        internal PreparedGameplayModifiers(GameplayModifiers.EnergyType energyType, GameplayModifiers.EnabledObstacleType obstacleType, GameplayModifiers.SongSpeed songSpeed,
+            bool noFail, bool instaFail, bool noBombs, bool disappearingArrows, bool ghostNotes, bool noArrows, bool proMode, bool smallCubes, bool strictAngles, double totalMultiplier) {
+            _energyType = energyType;
+            _obstacleType = obstacleType;
+            _songSpeed = songSpeed;
+            _noFail = noFail;
+            _instaFail = instaFail;
+            _noBombs = noBombs;
+            _disappearingArrows = disappearingArrows;
+            _ghostNotes = ghostNotes;
+            _noArrows = noArrows;
+            _proMode = proMode;
+            _smallCubes = smallCubes;
+            _strictAngles = strictAngles;
+            TotalMultiplier = totalMultiplier;
+        }
+
+        internal GameplayModifiersMap CreateMap() {
+            return new GameplayModifiersMap(new GameplayModifiers(_energyType, _noFail, _instaFail, false, _obstacleType, _noBombs, false, _strictAngles, _disappearingArrows,
+                _songSpeed, _noArrows, _ghostNotes, _proMode, false, _smallCubes)) { TotalMultiplier = TotalMultiplier };
         }
     }
 

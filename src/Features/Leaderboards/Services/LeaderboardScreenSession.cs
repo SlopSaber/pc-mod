@@ -14,6 +14,8 @@ namespace ScoreSaber.Features.Leaderboards.Services {
         private LeaderboardScreenScope _scope = LeaderboardScreenScope.Global;
         private int _page = 1;
         private CancellationTokenSource _refreshCancellation;
+        private long _refreshRevision;
+        private bool _disposed;
 
         internal LeaderboardScreenState CurrentState { get; private set; } = LeaderboardScreenState.Failed(LeaderboardScreenStatus.Error, string.Empty, false, null, string.Empty, false, 1);
 
@@ -80,42 +82,79 @@ namespace ScoreSaber.Features.Leaderboards.Services {
         private void Refresh() => LoadCurrent().RunTask();
 
         private async Task LoadCurrent() {
-            if (!_beatmapKey.HasValue) {
+            if (_disposed || !_beatmapKey.HasValue) {
                 return;
             }
 
-            CancelRefresh();
-            _refreshCancellation = new CancellationTokenSource();
-            CancellationToken cancellationToken = _refreshCancellation.Token;
-
-            Publish(LeaderboardScreenState.Loading(_page));
+            long revision = CancelRefresh();
+            if (_disposed || revision != _refreshRevision) {
+                return;
+            }
+            var refresh = new CancellationTokenSource();
+            _refreshCancellation = refresh;
+            CancellationToken cancellationToken = refresh.Token;
+            BeatmapKey beatmapKey = _beatmapKey.Value;
+            LeaderboardScreenScope scope = _scope;
+            int page = _page;
+            Func<bool> publicationGuard = _leaderboardLoader.CapturePublicationGuard(cancellationToken);
 
             try {
-                LeaderboardScreenState state = await _leaderboardLoader.Load(_beatmapKey.Value, _scope, _page, cancellationToken);
-                if (cancellationToken.IsCancellationRequested) {
+                Publish(LeaderboardScreenState.Loading(page), refresh, cancellationToken, publicationGuard);
+                if (!IsCurrent(refresh, cancellationToken) || !publicationGuard()) {
+                    return;
+                }
+                LeaderboardScreenState state = await _leaderboardLoader.Load(beatmapKey, scope, page, cancellationToken);
+                await IPA.Utilities.UnityGame.SwitchToMainThreadAsync();
+                if (!IsCurrent(refresh, cancellationToken) || !publicationGuard()) {
                     return;
                 }
 
-                Publish(state);
+                Publish(state, refresh, cancellationToken, publicationGuard);
             } catch (OperationCanceledException) {
             } catch (Exception ex) {
+                await IPA.Utilities.UnityGame.SwitchToMainThreadAsync();
+                if (!IsCurrent(refresh, cancellationToken) || !publicationGuard()) {
+                    return;
+                }
                 Plugin.Log.Error($"Failed to load LeaderboardCore ScoreSaber leaderboard: {ex}");
-                Publish(LeaderboardScreenState.Failed(LeaderboardScreenStatus.Error, "Failed to load leaderboard, score won't upload", true, null, string.Empty, false, _page));
+                Publish(LeaderboardScreenState.Failed(LeaderboardScreenStatus.Error, "Failed to load leaderboard, score won't upload", true, null, string.Empty, false, page), refresh, cancellationToken, publicationGuard);
             }
         }
 
-        private void CancelRefresh() {
-            _refreshCancellation?.Cancel();
-            _refreshCancellation?.Dispose();
+        private long CancelRefresh() {
+            long revision = ++_refreshRevision;
+            CancellationTokenSource refresh = _refreshCancellation;
             _refreshCancellation = null;
+            refresh?.Cancel();
+            refresh?.Dispose();
+            return revision;
         }
 
-        private void Publish(LeaderboardScreenState state) {
+        internal void CancelPendingRefresh() => CancelRefresh();
+
+        private bool IsCurrent(CancellationTokenSource refresh, CancellationToken cancellationToken) =>
+            !_disposed && ReferenceEquals(_refreshCancellation, refresh) && !cancellationToken.IsCancellationRequested;
+
+        private void Publish(LeaderboardScreenState state, CancellationTokenSource refresh, CancellationToken cancellationToken, Func<bool> publicationGuard) {
+            if (!IsCurrent(refresh, cancellationToken) || !publicationGuard()) {
+                return;
+            }
+            state.PublicationGuard = () => IsCurrent(refresh, cancellationToken) && ReferenceEquals(CurrentState, state) && publicationGuard();
             CurrentState = state;
-            StateChanged?.Invoke(state);
+            Delegate[] subscribers = StateChanged?.GetInvocationList();
+            if (subscribers == null) {
+                return;
+            }
+            foreach (Delegate subscriber in subscribers) {
+                if (!state.CanPublish) {
+                    return;
+                }
+                ((Action<LeaderboardScreenState>)subscriber)(state);
+            }
         }
 
         public void Dispose() {
+            _disposed = true;
             CancelRefresh();
         }
     }

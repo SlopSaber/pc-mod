@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Runtime.ExceptionServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -29,9 +31,9 @@ namespace ScoreSaber.Core.BeatSaver {
                 throw new ArgumentException("BeatSaver hash is required", nameof(hash));
             }
 
-            string response = await _http.GetRawAsync($"https://api.beatsaver.com/maps/hash/{normalizedHash.ToLowerInvariant()}");
+            byte[] response = await _http.GetRawBytesAsync($"https://api.beatsaver.com/maps/hash/{normalizedHash.ToLowerInvariant()}");
             cancellationToken.ThrowIfCancellationRequested();
-            return JsonConvert.DeserializeObject<BeatSaverMap>(response);
+            return await DecodeMap(response, cancellationToken);
         }
 
         internal async Task<BeatSaverMap> GetMapById(string id, CancellationToken cancellationToken) {
@@ -39,9 +41,9 @@ namespace ScoreSaber.Core.BeatSaver {
                 throw new ArgumentException("BeatSaver id is required", nameof(id));
             }
 
-            string response = await _http.GetRawAsync($"https://api.beatsaver.com/maps/id/{id.Trim()}");
+            byte[] response = await _http.GetRawBytesAsync($"https://api.beatsaver.com/maps/id/{id.Trim()}");
             cancellationToken.ThrowIfCancellationRequested();
-            return JsonConvert.DeserializeObject<BeatSaverMap>(response);
+            return await DecodeMap(response, cancellationToken);
         }
 
         internal async Task DownloadMapByHash(string hash, BeatSaverVersion version, CancellationToken cancellationToken) {
@@ -64,17 +66,14 @@ namespace ScoreSaber.Core.BeatSaver {
             string tempSongPath = Path.Combine(tempRootPath, "song");
             string zipPath = Path.Combine(tempRootPath, $"{lowerHash}.zip");
 
-            try {
-                Directory.CreateDirectory(customSongsPath);
-                Directory.CreateDirectory(tempRootPath);
-                TrySetHidden(tempRootPath, true);
-
-                await DownloadAndExtractMap(BuildDownloadUrls(songUrl, lowerHash), zipPath, tempSongPath, cancellationToken);
-                TrySetHidden(tempRootPath, false);
-                ReplaceDirectory(tempSongPath, customSongPath);
-            } finally {
-                TryDelete(zipPath);
-                TryDeleteDirectory(tempRootPath);
+            using (await BeatSaverPreparationWorker.EnterDestination(customSongPath)) {
+                try {
+                    await RunFile(new FileRequest(FileAction.Setup, customSongsPath, tempRootPath, tempSongPath, zipPath, customSongPath));
+                    await DownloadAndExtractMap(BuildDownloadUrls(songUrl, lowerHash), zipPath, tempSongPath, cancellationToken);
+                    await RunFile(new FileRequest(FileAction.Commit, customSongsPath, tempRootPath, tempSongPath, zipPath, customSongPath));
+                } finally {
+                    await RunFile(new FileRequest(FileAction.Cleanup, customSongsPath, tempRootPath, tempSongPath, zipPath, customSongPath));
+                }
             }
         }
 
@@ -110,23 +109,18 @@ namespace ScoreSaber.Core.BeatSaver {
             foreach (string url in urls) {
                 for (int attempt = 1; attempt <= DownloadAttemptCount; attempt++) {
                     cancellationToken.ThrowIfCancellationRequested();
-                    TryDelete(zipPath);
-                    TryDeleteDirectory(tempSongPath);
+                    await RunFile(new FileRequest(FileAction.PrepareAttempt, null, null, tempSongPath, zipPath, null));
 
                     try {
                         await DownloadZipToFile(url, zipPath, cancellationToken);
-                        EnsureDownloadedZip(zipPath);
-                        Directory.CreateDirectory(tempSongPath);
-                        ExtractZip(zipPath, tempSongPath, cancellationToken);
-                        TryDelete(zipPath);
+                        await RunFile(new FileRequest(FileAction.Extract, null, null, tempSongPath, zipPath, null, cancellationToken));
                         return;
                     } catch (OperationCanceledException) {
                         throw;
                     } catch (Exception ex) {
                         lastError = ex;
                         Plugin.Log.Warn($"BeatSaver map download failed from {url} (attempt {attempt}/{DownloadAttemptCount}): {ex.Message}");
-                        TryDelete(zipPath);
-                        TryDeleteDirectory(tempSongPath);
+                        await RunFile(new FileRequest(FileAction.PrepareAttempt, null, null, tempSongPath, zipPath, null));
 
                         if (attempt >= DownloadAttemptCount || !ShouldRetry(ex)) {
                             break;
@@ -243,7 +237,7 @@ namespace ScoreSaber.Core.BeatSaver {
             }
         }
 
-        private static void ReplaceDirectory(string sourcePath, string destinationPath) {
+        private static void ReplaceDirectory(string sourcePath, string destinationPath, List<string> warnings) {
             string backupPath = null;
             bool replaced = false;
 
@@ -256,16 +250,16 @@ namespace ScoreSaber.Core.BeatSaver {
                 Directory.Move(sourcePath, destinationPath);
                 replaced = true;
             } catch {
-                TryRestoreDirectory(backupPath, destinationPath);
+                TryRestoreDirectory(backupPath, destinationPath, warnings);
                 throw;
             } finally {
                 if (replaced && backupPath != null) {
-                    TryDeleteDirectory(backupPath);
+                    TryDeleteDirectory(backupPath, warnings);
                 }
             }
         }
 
-        private static void TryRestoreDirectory(string backupPath, string destinationPath) {
+        private static void TryRestoreDirectory(string backupPath, string destinationPath, List<string> warnings) {
             if (backupPath == null || Directory.Exists(destinationPath) || !Directory.Exists(backupPath)) {
                 return;
             }
@@ -273,9 +267,9 @@ namespace ScoreSaber.Core.BeatSaver {
             try {
                 Directory.Move(backupPath, destinationPath);
             } catch (IOException ex) {
-                Plugin.Log.Warn($"Unable to restore previous BeatSaver map folder: {ex.Message}");
+                warnings.Add($"Unable to restore previous BeatSaver map folder: {ex.Message}");
             } catch (UnauthorizedAccessException ex) {
-                Plugin.Log.Warn($"Unable to restore previous BeatSaver map folder: {ex.Message}");
+                warnings.Add($"Unable to restore previous BeatSaver map folder: {ex.Message}");
             }
         }
 
@@ -300,36 +294,126 @@ namespace ScoreSaber.Core.BeatSaver {
             return new BeatSaverDownloadException(message, retryable);
         }
 
-        private static void TryDelete(string path) {
+        private static void TryDelete(string path, List<string> warnings) {
             try {
                 File.Delete(path);
             } catch (IOException ex) {
-                Plugin.Log.Warn($"Unable to delete BeatSaver map zip: {ex.Message}");
+                warnings.Add($"Unable to delete BeatSaver map zip: {ex.Message}");
             } catch (UnauthorizedAccessException ex) {
-                Plugin.Log.Warn($"Unable to delete BeatSaver map zip: {ex.Message}");
+                warnings.Add($"Unable to delete BeatSaver map zip: {ex.Message}");
             }
         }
 
-        private static void TrySetHidden(string path, bool hidden) {
+        private static void TrySetHidden(string path, bool hidden, List<string> warnings) {
             try {
                 FileAttributes attributes = File.GetAttributes(path);
                 File.SetAttributes(path, hidden ? attributes | FileAttributes.Hidden : attributes & ~FileAttributes.Hidden);
             } catch (IOException ex) {
-                Plugin.Log.Warn($"Unable to update BeatSaver map temp folder attributes: {ex.Message}");
+                warnings.Add($"Unable to update BeatSaver map temp folder attributes: {ex.Message}");
             } catch (UnauthorizedAccessException ex) {
-                Plugin.Log.Warn($"Unable to update BeatSaver map temp folder attributes: {ex.Message}");
+                warnings.Add($"Unable to update BeatSaver map temp folder attributes: {ex.Message}");
             }
         }
 
-        private static void TryDeleteDirectory(string path) {
+        private static void TryDeleteDirectory(string path, List<string> warnings) {
             try {
                 if (Directory.Exists(path)) {
                     Directory.Delete(path, true);
                 }
             } catch (IOException ex) {
-                Plugin.Log.Warn($"Unable to delete BeatSaver map folder: {ex.Message}");
+                warnings.Add($"Unable to delete BeatSaver map folder: {ex.Message}");
             } catch (UnauthorizedAccessException ex) {
-                Plugin.Log.Warn($"Unable to delete BeatSaver map folder: {ex.Message}");
+                warnings.Add($"Unable to delete BeatSaver map folder: {ex.Message}");
+            }
+        }
+
+        private static async Task<BeatSaverMap> DecodeMap(byte[] response, CancellationToken cancellationToken) {
+            if (JsonConvert.DefaultSettings != null) {
+                return JsonConvert.DeserializeObject<BeatSaverMap>(Encoding.UTF8.GetString(response));
+            }
+
+            BeatSaverPreparationWorker.Result<BeatSaverMap> result = await BeatSaverPreparationWorker.Decode(response, cancellationToken);
+            if (result.Error != null) {
+                ExceptionDispatchInfo.Capture(result.Error).Throw();
+            }
+
+            return result.Value;
+        }
+
+        private static async Task RunFile(FileRequest request) {
+            BeatSaverPreparationWorker.Result<bool> result = await BeatSaverPreparationWorker.File(request);
+            foreach (string warning in result.Warnings) {
+                Plugin.Log.Warn(warning);
+            }
+
+            if (result.Error != null) {
+                ExceptionDispatchInfo.Capture(result.Error).Throw();
+            }
+        }
+
+        internal enum FileAction {
+            Setup,
+            PrepareAttempt,
+            Extract,
+            Commit,
+            Cleanup
+        }
+
+        internal sealed class FileRequest {
+            private readonly FileAction _action;
+            private readonly string _customSongsPath;
+            private readonly string _tempRootPath;
+            private readonly string _tempSongPath;
+            private readonly string _zipPath;
+            private readonly string _destinationPath;
+            private readonly CancellationToken _cancellationToken;
+
+            internal FileRequest(FileAction action, string customSongsPath, string tempRootPath, string tempSongPath, string zipPath, string destinationPath, CancellationToken cancellationToken = default) {
+                _action = action;
+                _customSongsPath = customSongsPath;
+                _tempRootPath = tempRootPath;
+                _tempSongPath = tempSongPath;
+                _zipPath = zipPath;
+                _destinationPath = destinationPath;
+                _cancellationToken = cancellationToken;
+            }
+
+            internal BeatSaverPreparationWorker.Result<bool> Run() {
+                var warnings = new List<string>();
+                Exception error = null;
+                try {
+                    switch (_action) {
+                        case FileAction.Setup:
+                            Directory.CreateDirectory(_customSongsPath);
+                            Directory.CreateDirectory(_tempRootPath);
+                            TrySetHidden(_tempRootPath, true, warnings);
+                            break;
+                        case FileAction.PrepareAttempt:
+                            TryDelete(_zipPath, warnings);
+                            TryDeleteDirectory(_tempSongPath, warnings);
+                            break;
+                        case FileAction.Extract:
+                            EnsureDownloadedZip(_zipPath);
+                            Directory.CreateDirectory(_tempSongPath);
+                            ExtractZip(_zipPath, _tempSongPath, _cancellationToken);
+                            TryDelete(_zipPath, warnings);
+                            break;
+                        case FileAction.Commit:
+                            TrySetHidden(_tempRootPath, false, warnings);
+                            ReplaceDirectory(_tempSongPath, _destinationPath, warnings);
+                            break;
+                        case FileAction.Cleanup:
+                            TryDelete(_zipPath, warnings);
+                            TryDeleteDirectory(_tempRootPath, warnings);
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+                } catch (Exception ex) {
+                    error = ex;
+                }
+
+                return new BeatSaverPreparationWorker.Result<bool>(error == null, error, warnings.ToArray());
             }
         }
 

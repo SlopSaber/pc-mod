@@ -50,6 +50,10 @@ namespace ScoreSaber {
         }
 
         internal async Task<string> GetRawAsync(string url) {
+            return Encoding.UTF8.GetString(await GetRawBytesAsync(url));
+        }
+
+        internal async Task<byte[]> GetRawBytesAsync(string url) {
             using (UnityWebRequest request = UnityWebRequest.Get(url)) {
                 request.timeout = 5;
                 await SendHttpAsyncRequest(request);
@@ -57,7 +61,7 @@ namespace ScoreSaber {
                     throw ThrowHttpException(request);
                 }
 
-                return Encoding.UTF8.GetString(request.downloadHandler.data);
+                return request.downloadHandler.data;
             }
         }
 

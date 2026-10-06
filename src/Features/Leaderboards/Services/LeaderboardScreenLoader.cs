@@ -54,6 +54,21 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             LeaderboardMap leaderboard;
             try {
                 leaderboard = await _leaderboardQueryService.GetLeaderboardData(beatmapLevel, beatmapKey, scope, page, filterAroundCountry, cancellationToken);
+            } catch (GeneratedApiException ex) when (ex.GetType() == typeof(GeneratedApiException) && !string.IsNullOrEmpty(ex.Response)) {
+                cancellationToken.ThrowIfCancellationRequested();
+                int statusCode = ex.StatusCode;
+                var response = new OwnedErrorResponse(ex.Response);
+                string message = await ScoreSaber.Features.Replays.ReplayStorageService.QueueOwnedPreparation(response.Prepare);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (string.IsNullOrEmpty(message)) message = GetApiMessage(ex);
+
+                if (statusCode == 404 && message.IndexOf("Leaderboard not found", StringComparison.OrdinalIgnoreCase) >= 0) {
+                    return LeaderboardScreenState.Failed(LeaderboardScreenStatus.NoLeaderboard, "Play this level to create a ScoreSaber leaderboard", true, null, "Unranked", false, page);
+                }
+                if (statusCode == 404 && message.IndexOf("hasn't set a score", StringComparison.OrdinalIgnoreCase) >= 0) {
+                    return LeaderboardScreenState.Failed(LeaderboardScreenStatus.NoPlayerScore, message, true, null, string.Empty, false, page);
+                }
+                return LeaderboardScreenState.Failed(LeaderboardScreenStatus.Error, message, true, null, string.Empty, false, page);
             } catch (GeneratedApiException ex) when (IsLeaderboardNotFoundResponse(ex)) {
                 cancellationToken.ThrowIfCancellationRequested();
                 return LeaderboardScreenState.Failed(
@@ -116,16 +131,33 @@ namespace ScoreSaber.Features.Leaderboards.Services {
         private static string GetApiMessage(GeneratedApiException ex) {
             if (!string.IsNullOrEmpty(ex.Response)) {
                 try {
-                    JObject body = JObject.Parse(ex.Response);
-                    string message = body.Value<string>("message") ?? body.Value<string>("errorMessage") ?? body.Value<string>("error");
-                    if (!string.IsNullOrEmpty(message)) {
-                        return message;
-                    }
+                    string message = ParseApiResponseMessage(ex.Response);
+                    if (!string.IsNullOrEmpty(message)) return message;
                 } catch (Exception) {
                 }
             }
 
             return string.IsNullOrEmpty(ex.Message) ? "Failed to load leaderboard" : ex.Message;
+        }
+
+        private static string ParseApiResponseMessage(string response) {
+            try {
+                JObject body = JObject.Parse(response);
+                string message = body.Value<string>("message") ?? body.Value<string>("errorMessage") ?? body.Value<string>("error");
+                if (!string.IsNullOrEmpty(message)) return message;
+            } catch (Exception) {
+            }
+            return null;
+        }
+
+        private sealed class OwnedErrorResponse {
+            private readonly string _response;
+
+            internal OwnedErrorResponse(string response) {
+                _response = response;
+            }
+
+            internal string Prepare() => ParseApiResponseMessage(_response);
         }
 
         private static string GetRankedStatus(LeaderboardDetails leaderboardInfo) => leaderboardInfo.Status switch {

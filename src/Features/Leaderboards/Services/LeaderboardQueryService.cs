@@ -55,9 +55,16 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             ensureCurrent();
 
             LeaderboardScorePreparation.Result prepared = null;
+            System.Globalization.CultureInfo rowCulture = null;
             if (_apiClient.GetType() == typeof(ScoreSaberApiClient) && JsonConvert.DefaultSettings == null && snapshot.TakeOwnedScores()) {
-                prepared = await LeaderboardScorePreparation.Queue(snapshot, _settings.ReplayPath, query.SongHash, beatmapLevel.songName,
-                    beatmapKey.difficulty.SerializedName(), beatmapKey.CharacteristicSerializedName());
+                string replayPath = _settings.ReplayPath;
+                string songHash = query.SongHash;
+                string songName = beatmapLevel.songName;
+                string difficulty = beatmapKey.difficulty.SerializedName();
+                string characteristic = beatmapKey.CharacteristicSerializedName();
+                System.Globalization.CultureInfo culture = System.Globalization.CultureInfo.CurrentCulture;
+                if (PreparedLeaderboardPlayerName.CanUseCulture(culture)) rowCulture = culture;
+                prepared = await LeaderboardScorePreparation.Queue(snapshot, replayPath, songHash, songName, difficulty, characteristic, rowCulture != null);
                 await IPA.Utilities.UnityGame.SwitchToMainThreadAsync();
                 ensureCurrent();
                 prepared.ThrowIfFailed();
@@ -69,7 +76,7 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             ensureCurrent();
             LeaderboardMap leaderboard = prepared == null
                 ? new LeaderboardMap(snapshot, beatmapLevel, beatmapKey, snapshot.Leaderboard.MaxScore, _replayStorageService, ensureCurrent)
-                : new LeaderboardMap(snapshot, prepared.Scores, beatmapLevel, beatmapKey, ensureCurrent);
+                : new LeaderboardMap(snapshot, prepared.Scores, beatmapLevel, beatmapKey, ensureCurrent, rowCulture);
             ensureCurrent();
             return leaderboard;
         }

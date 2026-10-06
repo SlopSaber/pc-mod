@@ -24,7 +24,11 @@ namespace ScoreSaber.Features.Leaderboards.Domain {
             }
         }
 
-        internal LeaderboardMap(LeaderboardSnapshot leaderboard, PreparedLeaderboardScore[] scores, BeatmapLevel beatmapLevel, BeatmapKey beatmapKey, Action ensureCurrent) {
+        internal LeaderboardMap(LeaderboardSnapshot leaderboard, PreparedLeaderboardScore[] scores, BeatmapLevel beatmapLevel, BeatmapKey beatmapKey, Action ensureCurrent) :
+            this(leaderboard, scores, beatmapLevel, beatmapKey, ensureCurrent, null) {
+        }
+
+        internal LeaderboardMap(LeaderboardSnapshot leaderboard, PreparedLeaderboardScore[] scores, BeatmapLevel beatmapLevel, BeatmapKey beatmapKey, Action ensureCurrent, System.Globalization.CultureInfo rowCulture) {
             ensureCurrent();
             LeaderboardInfo = new LeaderboardInfoMap(leaderboard.Leaderboard, beatmapLevel, beatmapKey);
             ensureCurrent();
@@ -32,7 +36,7 @@ namespace ScoreSaber.Features.Leaderboards.Domain {
             Scores = new ScoreMap[scores.Length];
             for (int i = 0; i < scores.Length; i++) {
                 ensureCurrent();
-                Scores[i] = new ScoreMap(scores[i], LeaderboardInfo);
+                Scores[i] = new ScoreMap(scores[i], LeaderboardInfo, rowCulture);
                 ensureCurrent();
             }
         }

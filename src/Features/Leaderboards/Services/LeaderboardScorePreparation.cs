@@ -10,18 +10,22 @@ using System.Threading.Tasks;
 
 namespace ScoreSaber.Features.Leaderboards.Services {
     internal static class LeaderboardScorePreparation {
-        internal static Task<Result> Queue(LeaderboardSnapshot ownedSnapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic) {
+        internal static Task<Result> Queue(LeaderboardSnapshot ownedSnapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic) =>
+            Queue(ownedSnapshot, replayPath, songHash, songName, difficulty, characteristic, false);
+
+        internal static Task<Result> Queue(LeaderboardSnapshot ownedSnapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic, bool preparePlayerNames) {
             var request = new Request(ownedSnapshot, replayPath, songHash, songName, difficulty, characteristic,
-                CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentCulture.Clone()), CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentUICulture.Clone()));
+                CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentCulture.Clone()), CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentUICulture.Clone()), preparePlayerNames);
             return ReplayStorageService.QueueOwnedPreparation(request.Run);
         }
 
         private sealed class Request {
+            private readonly bool _preparePlayerNames;
             private readonly LeaderboardSnapshot _snapshot;
             private readonly string _replayPath, _songHash, _songName, _difficulty, _characteristic;
             private readonly CultureInfo _culture, _uiCulture;
 
-            internal Request(LeaderboardSnapshot snapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic, CultureInfo culture, CultureInfo uiCulture) {
+            internal Request(LeaderboardSnapshot snapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic, CultureInfo culture, CultureInfo uiCulture, bool preparePlayerNames) {
                 _snapshot = snapshot;
                 _replayPath = replayPath;
                 _songHash = songHash;
@@ -30,6 +34,7 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                 _characteristic = characteristic;
                 _culture = culture;
                 _uiCulture = uiCulture;
+                _preparePlayerNames = preparePlayerNames;
             }
 
             internal Result Run() {
@@ -56,7 +61,8 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                         if (hasLocalReplay) {
                             score.HasReplay = true;
                         }
-                        prepared[i] = new PreparedLeaderboardScore(score, modifierText, modifiers, accuracy, hasLocalReplay);
+                        PreparedLeaderboardPlayerName playerName = _preparePlayerNames ? PreparedLeaderboardPlayerName.TryCreate(score, modifierText, accuracy) : null;
+                        prepared[i] = new PreparedLeaderboardScore(score, modifierText, modifiers, accuracy, hasLocalReplay, playerName);
                     }
                     return new Result(prepared);
                 } catch (Exception error) {

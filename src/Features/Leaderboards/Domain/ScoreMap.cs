@@ -5,6 +5,8 @@ using System.Linq;
 
 namespace ScoreSaber.Features.Leaderboards.Domain {
     internal class ScoreMap {
+        private readonly PreparedLeaderboardPlayerName _preparedPlayerName;
+        private readonly System.Globalization.CultureInfo _preparedCulture;
 
         internal LeaderboardScore Score { get; private set; }
         internal LeaderboardInfoMap Parent { get; set; }
@@ -35,13 +37,25 @@ namespace ScoreSaber.Features.Leaderboards.Domain {
             }
         }
 
-        internal ScoreMap(PreparedLeaderboardScore prepared, LeaderboardInfoMap leaderboardInfo) {
+        internal ScoreMap(PreparedLeaderboardScore prepared, LeaderboardInfoMap leaderboardInfo) : this(prepared, leaderboardInfo, null) {
+        }
+
+        internal ScoreMap(PreparedLeaderboardScore prepared, LeaderboardInfoMap leaderboardInfo, System.Globalization.CultureInfo rowCulture) {
             Score = prepared.Score;
             ModifierText = prepared.ModifierText;
             Parent = leaderboardInfo;
             HasLocalReplay = prepared.HasLocalReplay;
             Accuracy = prepared.Accuracy;
             GameplayModifiers = prepared.Modifiers?.CreateMap().GameplayModifiers;
+            _preparedPlayerName = prepared.PlayerName;
+            _preparedCulture = rowCulture;
+        }
+
+        internal bool TryGetPreparedPlayerNames(out string withoutPP, out string withPP) {
+            withoutPP = null;
+            withPP = null;
+            return _preparedPlayerName != null && System.Object.ReferenceEquals(_preparedCulture, System.Globalization.CultureInfo.CurrentCulture) &&
+                _preparedPlayerName.TryGet(Score, ModifierText, Accuracy, out withoutPP, out withPP);
         }
 
     }

@@ -261,6 +261,9 @@ namespace ScoreSaber.Features.Leaderboards.Adapters.LeaderboardCore {
         }
 
         private string FormatPlayerName(ScoreMap scoreMap) {
+            if (scoreMap.TryGetPreparedPlayerNames(out string withoutPP, out string withPP)) {
+                return scoreMap.Score.PP > 0 && _settings.Current.showScorePP ? withPP : withoutPP;
+            }
             bool hasMods = !string.IsNullOrEmpty(scoreMap.ModifierText);
             string name = $"<size=80%>{scoreMap.Score.Player.Name}</size>";
             string accuracy = $"<size=70%>(<color=#FFD42A>{scoreMap.Accuracy}%</color>)</size>";

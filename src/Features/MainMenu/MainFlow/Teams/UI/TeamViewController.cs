@@ -6,6 +6,8 @@ using Newtonsoft.Json;
 using ScoreSaber.Core.Presentation;
 using ScoreSaber.Features.MainMenu.MainFlow.Teams;
 using System.Collections.Generic;
+using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Zenject;
 
@@ -40,15 +42,20 @@ namespace ScoreSaber.Features.MainMenu.MainFlow.Teams.UI {
             if (firstActivation) {
 
                 _teamHosts.Clear();
-                var team = await GetTeam();
-
-                foreach (KeyValuePair<TeamType, List<TeamMember>> member in team.TeamMembers) {
-                    string teamName = member.Key.ToString();
-                    if (teamName == "RT") {
-                        teamName = "Ranking Team";
+                var response = await GetTeam();
+                if (response.IsPrepared) {
+                    foreach (PreparedTeamGroup group in response.Groups) {
+                        _teamHosts.Add(TeamToProfileHost(group.Members, group.Name ?? group.Type.ToString()));
                     }
-                    TeamHost host = TeamToProfileHost(member.Value, teamName);
-                    _teamHosts.Add(host);
+                } else {
+                    foreach (KeyValuePair<TeamType, List<TeamMember>> member in response.CallerTeam.TeamMembers) {
+                        string teamName = member.Key.ToString();
+                        if (teamName == "RT") {
+                            teamName = "Ranking Team";
+                        }
+                        TeamHost host = TeamToProfileHost(member.Value, teamName);
+                        _teamHosts.Add(host);
+                    }
                 }
             }
 
@@ -87,9 +94,68 @@ namespace ScoreSaber.Features.MainMenu.MainFlow.Teams.UI {
             return new TeamHost(teamName, host);
         }
 
-        private async Task<ScoreSaberTeam> GetTeam() {
+        private TeamHost TeamToProfileHost(PreparedTeamMember[] team, string teamName) {
+            var profiles = new List<TeamUserInfo>();
+            foreach (PreparedTeamMember member in team) {
+                profiles.Add(new TeamUserInfo(_materials, member));
+            }
+            return new TeamHost(teamName, profiles);
+        }
+
+        private async Task<PreparedTeamResponse> GetTeam() {
             string response = await _http.GetRawAsync(TeamUrl);
-            return JsonConvert.DeserializeObject<ScoreSaberTeam>(response);
+            if (response == null) {
+                throw new System.ArgumentNullException("value");
+            }
+            if (JsonConvert.DefaultSettings != null) {
+                return new PreparedTeamResponse(JsonConvert.DeserializeObject<ScoreSaberTeam>(response));
+            }
+
+            JsonSerializer serializer = JsonSerializer.Create();
+            serializer.CheckAdditionalContent = true;
+            Task<PreparedTeamResponse> preparation;
+            if (ExecutionContext.IsFlowSuppressed()) {
+                preparation = StartPreparation(response, serializer);
+            } else {
+                using (ExecutionContext.SuppressFlow()) {
+                    preparation = StartPreparation(response, serializer);
+                }
+            }
+            return preparation.GetAwaiter().GetResult();
+        }
+
+        private static Task<PreparedTeamResponse> StartPreparation(string response, JsonSerializer serializer) {
+            return Task.Factory.StartNew(
+                () => PrepareOwned(response, serializer), CancellationToken.None,
+                TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+        }
+
+        private static PreparedTeamResponse PrepareOwned(string response, JsonSerializer serializer) {
+            ScoreSaberTeam team;
+            using (var reader = new JsonTextReader(new StringReader(response))) {
+                team = serializer.Deserialize<ScoreSaberTeam>(reader);
+            }
+            if (team?.TeamMembers == null) {
+                return new PreparedTeamResponse((PreparedTeamGroup[])null);
+            }
+
+            var groups = new List<PreparedTeamGroup>();
+            foreach (KeyValuePair<TeamType, List<TeamMember>> group in team.TeamMembers) {
+                string name = System.Enum.GetName(typeof(TeamType), group.Key);
+                if (name == "RT") {
+                    name = "Ranking Team";
+                }
+                PreparedTeamMember[] members = null;
+                if (group.Value != null) {
+                    var prepared = new List<PreparedTeamMember>();
+                    foreach (TeamMember member in group.Value) {
+                        prepared.Add(member == null ? null : new PreparedTeamMember(member));
+                    }
+                    members = prepared.ToArray();
+                }
+                groups.Add(new PreparedTeamGroup(group.Key, name, members));
+            }
+            return new PreparedTeamResponse(groups.ToArray());
         }
     }
 }

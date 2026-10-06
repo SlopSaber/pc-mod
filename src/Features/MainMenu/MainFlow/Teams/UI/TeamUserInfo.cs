@@ -52,6 +52,7 @@ namespace ScoreSaber.Features.MainMenu.MainFlow.Teams.UI {
         }
 
         private readonly string _profilePictureTemp;
+        private readonly string _preparedProfilePictureUrl;
         private readonly ScoreSaberUIMaterials _materials;
         private bool _loaded;
 
@@ -88,6 +89,23 @@ namespace ScoreSaber.Features.MainMenu.MainFlow.Teams.UI {
             youtubeLink = _youtube;
         }
 
+        internal TeamUserInfo(ScoreSaberUIMaterials materials, PreparedTeamMember member) {
+            _materials = materials;
+            _profilePictureTemp = member.ProfilePicture;
+            _preparedProfilePictureUrl = member.ProfilePictureUrl;
+            usernameText = member.Username;
+            SetPreparedLink(ref _discordLink, member.Discord, "hasDiscord");
+            SetPreparedLink(ref _githubLink, member.GitHub, "hasGithub");
+            SetPreparedLink(ref _twitchLink, member.Twitch, "hasTwitch");
+            SetPreparedLink(ref _twitterLink, member.Twitter, "hasTwitter");
+            SetPreparedLink(ref _youtubeLink, member.YouTube, "hasYoutube");
+        }
+
+        private void SetPreparedLink(ref string field, string value, string propertyName) {
+            field = value;
+            NotifyPropertyChanged(propertyName);
+        }
+
         public void LoadImage() {
 
             if (_loaded) {
@@ -103,7 +121,10 @@ namespace ScoreSaber.Features.MainMenu.MainFlow.Teams.UI {
         private void SetImage(string image) {
 
             if (_profilePictureComponent != null) {
-                _profilePictureComponent.SetImageAsync($"https://raw.githubusercontent.com/Umbranoxio/ScoreSaber-Team/main/images/{image}").RunTask();
+                string url = _preparedProfilePictureUrl != null && image == _profilePictureTemp
+                    ? _preparedProfilePictureUrl
+                    : $"https://raw.githubusercontent.com/Umbranoxio/ScoreSaber-Team/main/images/{image}";
+                _profilePictureComponent.SetImageAsync(url).RunTask();
             } else {
                 Plugin.Log.Info("ProfilePictureComponent is null");
             }

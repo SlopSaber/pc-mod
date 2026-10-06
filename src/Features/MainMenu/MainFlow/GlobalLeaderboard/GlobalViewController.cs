@@ -12,6 +12,7 @@ using ScoreSaber.Features.Players.Profile;
 using ScoreSaber.Features.Leaderboards.UI;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -149,6 +150,64 @@ namespace ScoreSaber.Features.MainMenu.MainFlow.GlobalLeaderboard {
         }
 
         private List<GlobalCell> CreateCells(GlobalPlayerPage page) {
+            CultureInfo currentCulture = CultureInfo.CurrentCulture;
+            if (currentCulture.GetType() != typeof(CultureInfo)) {
+                return CreateLegacyCells(page);
+            }
+            if (page.Players.Length == 0) {
+                return new List<GlobalCell>();
+            }
+
+            var rows = new CapturedGlobalRow[page.Players.Length];
+            for (int index = 0; index < rows.Length; index++) {
+                PlayerSummary player = page.Players[index];
+                rows[index] = new CapturedGlobalRow(player.Id, player.Avatar, player.Name, player.Country, player.Stats.Rank, player.Stats.TotalPP);
+            }
+            GlobalPlayerScope scope = page.Scope;
+            int pageNumber = page.Page;
+            CultureInfo culture = CultureInfo.ReadOnly((CultureInfo)currentCulture.Clone());
+            string cdnBaseUrl = ScoreSaberEndpoints.CdnBaseUrl;
+            Task<PreparedGlobalRow[]> preparation;
+            if (ExecutionContext.IsFlowSuppressed()) {
+                preparation = StartRowPreparation(rows, scope, pageNumber, culture, cdnBaseUrl);
+            } else {
+                using (ExecutionContext.SuppressFlow()) {
+                    preparation = StartRowPreparation(rows, scope, pageNumber, culture, cdnBaseUrl);
+                }
+            }
+            PreparedGlobalRow[] prepared = preparation.GetAwaiter().GetResult();
+            var cells = new List<GlobalCell>();
+            foreach (PreparedGlobalRow row in prepared) {
+                cells.Add(new GlobalCell(_materials, row, OnGlobalCellClicked));
+            }
+            return cells;
+        }
+
+        private static Task<PreparedGlobalRow[]> StartRowPreparation(CapturedGlobalRow[] rows, GlobalPlayerScope scope, int page, CultureInfo culture, string cdnBaseUrl) {
+            return Task.Factory.StartNew(
+                () => PrepareRows(rows, scope, page, culture, cdnBaseUrl), CancellationToken.None,
+                TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+        }
+
+        private static PreparedGlobalRow[] PrepareRows(CapturedGlobalRow[] rows, GlobalPlayerScope scope, int page, CultureInfo culture, string cdnBaseUrl) {
+            var prepared = new PreparedGlobalRow[rows.Length];
+            for (int index = 0; index < rows.Length; index++) {
+                CapturedGlobalRow row = rows[index];
+                string rank;
+                if (scope == GlobalPlayerScope.Country || scope == GlobalPlayerScope.Region || scope == GlobalPlayerScope.Friends) {
+                    int localRank = unchecked(index + 1 + ((page - 1) * 5));
+                    rank = string.Format(culture, "#{0:n0} (#{1:n0})", localRank, row.Rank);
+                } else {
+                    rank = string.Format(culture, "#{0:n0}", row.Rank);
+                }
+                string pp = string.Format(culture, "<color=#6772E5>{0:n0}pp</color>", row.PP);
+                string flagUrl = $"{cdnBaseUrl}/flags/{row.Country.ToLower(culture)}.png";
+                prepared[index] = new PreparedGlobalRow(row, rank, pp, flagUrl);
+            }
+            return prepared;
+        }
+
+        private List<GlobalCell> CreateLegacyCells(GlobalPlayerPage page) {
             var cells = new List<GlobalCell>();
             for (int i = 0; i < page.Players.Length; i++) {
                 PlayerSummary player = page.Players[i];

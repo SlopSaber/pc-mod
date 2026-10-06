@@ -49,6 +49,18 @@ namespace ScoreSaber.Features.MainMenu.MainFlow.GlobalLeaderboard {
             _flagUrl = ScoreSaberEndpoints.Flag(country);
         }
 
+        internal GlobalCell(ScoreSaberUIMaterials materials, PreparedGlobalRow row, Action<string, string> onActivateProfile) {
+            _materials = materials;
+            _identifier = row.Identifier;
+            _avatarUrl = row.AvatarUrl;
+            _ppText = row.PPText;
+            _username = row.Username;
+            _globalRank = row.RankText;
+            _profileClicked = onActivateProfile;
+            _countryText = row.CountryText;
+            _flagUrl = row.FlagUrl;
+        }
+
         [UIAction("profile-clicked")]
         private void ProfileClicked() {
 
@@ -59,6 +71,44 @@ namespace ScoreSaber.Features.MainMenu.MainFlow.GlobalLeaderboard {
         private void Parsed() {
 
             _imageView.material = _materials.RoundedImageMaterial;
+        }
+    }
+
+    internal readonly struct CapturedGlobalRow {
+        internal readonly string Identifier;
+        internal readonly string AvatarUrl;
+        internal readonly string Username;
+        internal readonly string Country;
+        internal readonly int Rank;
+        internal readonly double PP;
+
+        internal CapturedGlobalRow(string identifier, string avatarUrl, string username, string country, int rank, double pp) {
+            Identifier = identifier;
+            AvatarUrl = avatarUrl;
+            Username = username;
+            Country = country;
+            Rank = rank;
+            PP = pp;
+        }
+    }
+
+    internal sealed class PreparedGlobalRow {
+        internal readonly string Identifier;
+        internal readonly string AvatarUrl;
+        internal readonly string Username;
+        internal readonly string RankText;
+        internal readonly string PPText;
+        internal readonly string CountryText;
+        internal readonly string FlagUrl;
+
+        internal PreparedGlobalRow(CapturedGlobalRow row, string rankText, string ppText, string flagUrl) {
+            Identifier = row.Identifier;
+            AvatarUrl = row.AvatarUrl;
+            Username = row.Username;
+            RankText = rankText;
+            PPText = ppText;
+            CountryText = row.Country ?? string.Empty;
+            FlagUrl = flagUrl;
         }
     }
 }

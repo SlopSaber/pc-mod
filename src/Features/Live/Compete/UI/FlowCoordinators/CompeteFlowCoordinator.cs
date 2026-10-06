@@ -59,6 +59,7 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         private long _directoryLifetime;
         private long _tournamentRequest;
         private long _roomRequest;
+        private long _roomEntryRequest;
         private Func<bool> _directoryLoadingCurrent;
 
         [Inject]
@@ -129,6 +130,7 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
             if (_directoryLoadingCurrent != null) {
                 _directoryLoadingCurrent = null;
                 _loadingTransitioning = false;
+                _roomTransitioning = false;
                 _loadingCancellation?.Cancel();
                 if (_directoryActive || lifetime != _directoryLifetime) return;
             }
@@ -181,6 +183,7 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         }
 
         private void SelectJoinViaCode() {
+            _roomEntryRequest++;
             _tournamentRequest++;
             _roomRequest++;
             _codeEntryViewController.Reset();
@@ -192,6 +195,7 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         }
 
         private void SelectTournament(CompeteTournament tournament) {
+            _roomEntryRequest++;
             _tournamentRequest++;
             _roomRequest++;
             _selectedTournament = tournament;
@@ -219,6 +223,7 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
 
         private void BackToModeSelection() {
             if (topViewController == _tournamentBrowserViewController || topViewController == _codeEntryViewController) {
+                _roomEntryRequest++;
                 _tournamentRequest++;
                 _roomRequest++;
                 _selectedTournament = null;
@@ -323,42 +328,72 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         }
 
         private async Task EnterRoom(CompeteRoom room, bool roomAlreadyLoaded, Action<Exception> failed = null) {
+            if (!_directoryActive || _loadingTransitioning) return;
+            long lifetime = _directoryLifetime;
+            long request = ++_roomEntryRequest;
+            CompeteTournament tournament = _selectedTournament;
+            bool IsCurrent() => _directoryActive && lifetime == _directoryLifetime && request == _roomEntryRequest &&
+                ReferenceEquals(_selectedTournament, tournament);
             _roomTransitioning = true;
             await PresentWithLoading(
                 _roomViewController,
                 "Joining room...",
                 async token => {
-                    _selectedRoom = roomAlreadyLoaded
+                    CompeteRoom loaded = roomAlreadyLoaded
                         ? room
                         : await _directoryService.GetRoom(room.TournamentId, room.Id, token);
-                    await _ludusSession.ConnectAndJoin(_selectedRoom, token);
+                    await UnityMainThreadTaskScheduler.Factory.StartNew(() => {
+                        if (!IsCurrent() || token.IsCancellationRequested) throw new OperationCanceledException(token);
+                        _selectedRoom = loaded;
+                        return _ludusSession.ConnectAndJoin(loaded, token);
+                    }).Unwrap();
                 },
                 () => {
+                    if (!IsCurrent()) return;
                     _roomViewController.SetRoom(_selectedRoom);
+                    if (!IsCurrent()) return;
                     _playerListViewController.SetRoom(_selectedRoom);
+                    if (!IsCurrent()) return;
                     _gameplaySetupViewController.Setup(
                         showModifiers: false,
                         showEnvironmentOverrideSettings: true,
                         showColorSchemesSettings: true,
                         showMultiplayer: false,
                         PlayerSettingsPanelController.PlayerSettingsPanelLayout.Singleplayer);
+                    if (!IsCurrent()) return;
                     SetLeftScreenViewController(_gameplaySetupViewController, ViewController.AnimationType.In);
-                    ShowPlayersPanel(ViewController.AnimationType.In);
+                    if (IsCurrent()) ShowPlayersPanel(ViewController.AnimationType.In);
                 },
                 RoomTransitionFinished,
-                failed);
+                failed,
+                IsCurrent);
         }
 
         private async Task JoinViaCodeAsync(string code) {
+            long lifetime = _directoryLifetime;
+            long request = ++_roomEntryRequest;
+            bool IsCurrent() => _directoryActive && lifetime == _directoryLifetime && request == _roomEntryRequest &&
+                topViewController == _codeEntryViewController;
             try {
-                _codeEntryViewController.SetStatus("Looking up room...");
-                CompeteRoom room = await _directoryService.GetRoomByInviteCode(code, CancellationToken.None);
-                _selectedTournament = null;
-                _codeEntryViewController.SetStatus(string.Empty);
-                await EnterRoom(room, true, _ => _codeEntryViewController.SetStatus("That room could not be joined."));
+                CompeteRoom room = await UnityMainThreadTaskScheduler.Factory.StartNew(() => {
+                    if (!IsCurrent()) throw new OperationCanceledException();
+                    _codeEntryViewController.SetStatus("Looking up room...");
+                    if (!IsCurrent()) throw new OperationCanceledException();
+                    return _directoryService.GetRoomByInviteCode(code, CancellationToken.None);
+                }).Unwrap();
+                await UnityMainThreadTaskScheduler.Factory.StartNew(() => {
+                    if (!IsCurrent()) return Task.CompletedTask;
+                    _selectedTournament = null;
+                    _codeEntryViewController.SetStatus(string.Empty);
+                    if (!IsCurrent()) return Task.CompletedTask;
+                    return EnterRoom(room, true, _ => _codeEntryViewController.SetStatus("That room could not be joined."));
+                }).Unwrap();
             } catch (Exception ex) {
-                Plugin.Log.Warn($"Failed to join live room by code: {ex.Message}");
-                await OnMainThread(() => _codeEntryViewController.SetStatus("No room was found for that code."));
+                await OnMainThread(() => {
+                    if (!IsCurrent()) return;
+                    Plugin.Log.Warn($"Failed to join live room by code: {ex.Message}");
+                    if (IsCurrent()) _codeEntryViewController.SetStatus("No room was found for that code.");
+                });
             }
         }
 

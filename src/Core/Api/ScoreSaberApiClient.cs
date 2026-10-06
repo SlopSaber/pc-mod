@@ -188,7 +188,7 @@ namespace ScoreSaber.Core.Api {
                 query.RealmId,
                 cancellationToken);
 
-            return GeneratedModelMapper.ToDomain(response);
+            return await OwnedLeaderboardDomainPreparation.Prepare(response);
         }
 
         public Task<MapDetailsResponse> GetMapById(int mapId, CancellationToken cancellationToken) {
@@ -277,12 +277,10 @@ namespace ScoreSaber.Core.Api {
                 GetSessionKey(session),
                 cancellationToken);
 
+            OwnedLeaderboardDomainPreparation.PreparedScores prepared = await OwnedLeaderboardDomainPreparation.Prepare(response);
             return new LeaderboardScoresSnapshot {
-                Scores = new PagedResult<LeaderboardScore> {
-                    Items = response.Data.Select(score => GeneratedModelMapper.ToDomain(score)).ToList(),
-                    Metadata = GeneratedModelMapper.ToDomain(response.Metadata)
-                },
-                PlayerScore = GeneratedModelMapper.ToDomain(response.PlayerScore)
+                Scores = prepared.Scores,
+                PlayerScore = prepared.PlayerScore
             };
         }
 

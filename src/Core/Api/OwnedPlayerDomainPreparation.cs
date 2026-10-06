@@ -29,8 +29,7 @@ namespace ScoreSaber.Core.Api {
         }
 
         internal static Task<PlayerProfile> Prepare(PlayerProfileResponse source) {
-            if (source == null || !IsDefaultList(source.Badges) ||
-                !HasExplicitDate(source.CreatedAt) || !HasExplicitDate(source.LastSeenAt)) {
+            if (source == null || !IsDefaultList(source.Badges)) {
                 return Task.FromResult(GeneratedModelMapper.ToDomain(source));
             }
 
@@ -52,6 +51,9 @@ namespace ScoreSaber.Core.Api {
                 Following = source.Following,
                 Badges = CopyList(source.Badges, Copy)
             };
+            if (!HasExplicitDate(owned.CreatedAt) || !HasExplicitDate(owned.LastSeenAt)) {
+                return Task.FromResult(GeneratedModelMapper.ToDomain(source));
+            }
             return ReplayStorageService.QueueOwnedPreparation(() => GeneratedModelMapper.ToDomain(owned));
         }
 
@@ -113,7 +115,7 @@ namespace ScoreSaber.Core.Api {
             return owned;
         }
 
-        private static bool HasExplicitDate(string value) {
+        internal static bool HasExplicitDate(string value) {
             if (string.IsNullOrEmpty(value)) {
                 return true;
             }

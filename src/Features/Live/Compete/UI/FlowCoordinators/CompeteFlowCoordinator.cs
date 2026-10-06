@@ -123,13 +123,14 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
 
         protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling) {
             _directoryActive = false;
-            _directoryLifetime++;
+            long lifetime = ++_directoryLifetime;
             _tournamentRequest++;
             _roomRequest++;
             if (_directoryLoadingCurrent != null) {
                 _directoryLoadingCurrent = null;
                 _loadingTransitioning = false;
                 _loadingCancellation?.Cancel();
+                if (_directoryActive || lifetime != _directoryLifetime) return;
             }
             UnsubscribeTournamentBrowserEvents();
 

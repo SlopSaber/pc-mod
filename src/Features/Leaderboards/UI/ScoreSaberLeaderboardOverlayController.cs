@@ -101,8 +101,7 @@ namespace ScoreSaber.Features.Leaderboards.UI {
 
             int rankDigits = BaselineRankDigits;
             for (int i = 0; i < leaderboard.Scores.Length; i++) {
-                int rank = leaderboard.Scores[i].Score.Rank;
-                int digits = rank <= 0 ? 1 : rank.ToString().Length;
+                int digits = leaderboard.Scores[i].GetRankDigitCount();
                 if (digits > rankDigits) {
                     rankDigits = digits;
                 }

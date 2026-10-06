@@ -5,14 +5,17 @@ namespace ScoreSaber.Features.Leaderboards.Domain {
     internal sealed class PreparedLeaderboardPlayerName {
         private readonly string _name, _modifiers, _withoutPP, _withPP;
         private readonly double _pp, _accuracy;
+        private readonly int _rank, _rankDigits;
 
-        private PreparedLeaderboardPlayerName(string name, string modifiers, double pp, double accuracy, string withoutPP, string withPP) {
+        private PreparedLeaderboardPlayerName(string name, string modifiers, double pp, double accuracy, string withoutPP, string withPP, int rank, int rankDigits) {
             _name = name;
             _modifiers = modifiers;
             _pp = pp;
             _accuracy = accuracy;
             _withoutPP = withoutPP;
             _withPP = withPP;
+            _rank = rank;
+            _rankDigits = rankDigits;
         }
 
         internal static bool CanUseCulture(CultureInfo culture) => culture != null && culture.GetType() == typeof(CultureInfo) &&
@@ -34,10 +37,17 @@ namespace ScoreSaber.Features.Leaderboards.Domain {
                     withoutPP = $"{withoutPP} {modifiers}";
                     withPP = $"{withPP} {modifiers}";
                 }
-                return new PreparedLeaderboardPlayerName(playerName, modifierText, ppValue, accuracyValue, withoutPP, withPP);
+                int rank = score.Rank;
+                int rankDigits = rank <= 0 ? 1 : rank.ToString().Length;
+                return new PreparedLeaderboardPlayerName(playerName, modifierText, ppValue, accuracyValue, withoutPP, withPP, rank, rankDigits);
             } catch (Exception) {
                 return null;
             }
+        }
+
+        internal bool TryGetRankDigitCount(int rank, out int digits) {
+            digits = _rankDigits;
+            return rank == _rank;
         }
 
         internal bool TryGet(LeaderboardScore score, string modifierText, double accuracy, out string withoutPP, out string withPP) {

@@ -51,6 +51,14 @@ namespace ScoreSaber.Features.Leaderboards.Domain {
             _preparedCulture = rowCulture;
         }
 
+        internal int GetRankDigitCount() {
+            int rank = Score.Rank;
+            if (rank <= 0) return 1;
+            if (_preparedPlayerName != null && System.Object.ReferenceEquals(_preparedCulture, System.Globalization.CultureInfo.CurrentCulture) &&
+                _preparedPlayerName.TryGetRankDigitCount(rank, out int digits)) return digits;
+            return rank.ToString().Length;
+        }
+
         internal bool TryGetPreparedPlayerNames(out string withoutPP, out string withPP) {
             withoutPP = null;
             withPP = null;

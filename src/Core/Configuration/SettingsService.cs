@@ -22,15 +22,24 @@ namespace ScoreSaber.Core.Configuration {
 
         internal void Load() {
             try {
-                EnsureDirectories();
+                EnsureSaveDirectories();
+                string serialized = ReadSettings(Path.GetFullPath(SettingsPath));
 
-                if (!File.Exists(SettingsPath)) {
+                if (serialized == null) {
                     Current = CreateDefaultSettings();
                     Save();
                     return;
                 }
 
-                Current = JsonConvert.DeserializeObject<Settings>(File.ReadAllText(SettingsPath)) ?? CreateDefaultSettings();
+                Settings loaded;
+                if (JsonConvert.DefaultSettings == null) {
+                    JsonSerializer serializer = JsonSerializer.Create();
+                    serializer.CheckAdditionalContent = true;
+                    loaded = DeserializeOwned(serialized, serializer);
+                } else {
+                    loaded = JsonConvert.DeserializeObject<Settings>(serialized);
+                }
+                Current = loaded ?? CreateDefaultSettings();
                 if (Current.fileVersion < CurrentVersion) {
                     Upgrade(Current);
                     Save();
@@ -39,6 +48,26 @@ namespace ScoreSaber.Core.Configuration {
                 Plugin.Log.Error("Failed to load settings " + ex.ToString());
                 Current = CreateDefaultSettings();
             }
+        }
+
+        private static string ReadSettings(string path) {
+            string serialized = null;
+            RunSaveWork(() => {
+                if (File.Exists(path)) {
+                    serialized = File.ReadAllText(path);
+                }
+            });
+            return serialized;
+        }
+
+        private static Settings DeserializeOwned(string serialized, JsonSerializer serializer) {
+            Settings loaded = null;
+            RunSaveWork(() => {
+                using (var reader = new JsonTextReader(new StringReader(serialized))) {
+                    loaded = serializer.Deserialize<Settings>(reader);
+                }
+            });
+            return loaded;
         }
 
         internal void Save() {

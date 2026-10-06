@@ -202,6 +202,7 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
             CultureInfo culture = CultureInfo.CurrentCulture;
             LiveChatEntry[] entries = _currentMessages.Skip(Math.Max(0, _currentMessages.Count - VisibleMessageCount)).ToArray();
             if (culture.GetType() != typeof(CultureInfo) || !culture.IsReadOnly
+                || culture.DateTimeFormat.Calendar.GetType().Assembly != typeof(Calendar).Assembly
                 || entries.Any(entry => entry == null || entry.CreatedAtUnixMs > 253402300799999L)) {
                 RebuildImmediateMessages();
                 return;

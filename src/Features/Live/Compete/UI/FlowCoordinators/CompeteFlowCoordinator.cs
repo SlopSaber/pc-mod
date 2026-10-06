@@ -415,7 +415,7 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
             _loadingCancellation = new CancellationTokenSource();
             CancellationToken token = _loadingCancellation.Token;
             _directoryLoadingCurrent = isCurrent;
-            bool LoadingIsCurrent() => isCurrent == null || (isCurrent() && _loadingCancellation != null && _loadingCancellation.Token == token);
+            bool LoadingIsCurrent() => isCurrent == null || (isCurrent() && !token.IsCancellationRequested && _loadingCancellation != null && _loadingCancellation.Token == token);
             _loadingTransitioning = true;
             _loadingViewController.SetMessage(loadingMessage);
             if (isCurrent != null && !LoadingIsCurrent()) {
@@ -436,7 +436,10 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
                 }
                 await load(token);
                 await OnMainThread(() => {
-                    if (isCurrent != null && !LoadingIsCurrent()) return;
+                    if (isCurrent != null && !LoadingIsCurrent()) {
+                        RetireDirectoryLoading(token, isCurrent);
+                        return;
+                    }
                     if (token.IsCancellationRequested) {
                         _loadingTransitioning = false;
                         _roomTransitioning = false;
@@ -444,9 +447,15 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
                     }
 
                     beforeShowTarget?.Invoke();
-                    if (isCurrent != null && !LoadingIsCurrent()) return;
+                    if (isCurrent != null && !LoadingIsCurrent()) {
+                        RetireDirectoryLoading(token, isCurrent);
+                        return;
+                    }
                     ReplaceTopViewController(viewController, () => {
-                        if (isCurrent != null && !LoadingIsCurrent()) return;
+                        if (isCurrent != null && !LoadingIsCurrent()) {
+                            RetireDirectoryLoading(token, isCurrent);
+                            return;
+                        }
                         _directoryLoadingCurrent = null;
                         _loadingTransitioning = false;
                         finishedCallback?.Invoke();
@@ -798,6 +807,14 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
             _tournamentBrowserViewController.RefreshRequested -= RefreshTournaments;
             _tournamentBrowserViewController.TournamentSelected -= SelectTournament;
             _tournamentBrowserEventsSubscribed = false;
+        }
+
+        private void RetireDirectoryLoading(CancellationToken token, Func<bool> owner) {
+            if (_loadingCancellation == null || _loadingCancellation.Token != token ||
+                !ReferenceEquals(_directoryLoadingCurrent, owner)) return;
+            _directoryLoadingCurrent = null;
+            _loadingTransitioning = false;
+            _roomTransitioning = false;
         }
     }
 }

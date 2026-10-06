@@ -103,7 +103,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             _transport = new LudusSessionTransport(_mainThread);
             _outgoing = new LudusPacketSender(_transport.SendDeferred, clock);
             _mapStartCountdown = new LudusMapStartCountdown(_mainThread, () => _tournamentRoom?.Id ?? string.Empty, clock);
-            _commandSession = new CompeteLudusCommandSession(
+            var commandSession = new CompeteLudusCommandSession(
                 () => LocalPlayerId,
                 () => _tournamentRoom,
                 room => _tournamentRoom = room,
@@ -126,6 +126,8 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                 _mapStartCountdown.Begin,
                 _mapStartCountdown.TryCancel,
                 _mapStartCountdown.Complete);
+            commandSession.EnableOwnedRoomDetailsPreparation();
+            _commandSession = commandSession;
             _chatMessages = new LudusChatMessageBuffer();
             _packetContext = new LudusSessionPacketContext(
                 () => _outgoing.LastReceivedSequence,

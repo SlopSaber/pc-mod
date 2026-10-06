@@ -107,13 +107,16 @@ namespace ScoreSaber.Features.Live.Compete.UI.ViewControllers.Room.Left {
             bool nextTeamMode = room.PlayerListMode == CompetePlayerListMode.Teams;
             CompeteTeam nextTeamOne = room.Teams.Count > 0 ? room.Teams[0] : FallbackTeamOne;
             CompeteTeam nextTeamTwo = room.Teams.Count > 1 ? room.Teams[1] : FallbackTeamTwo;
-            CompetePlayer[] nextPlayers = room.Players.Where(player => player.IsActive).ToArray();
-            CompetePlayer[] nextRegularPlayers = nextTeamMode ? Array.Empty<CompetePlayer>() : nextPlayers;
+            OwnedRoomDetailsPreparation.PreparedPlayers prepared = null;
+            bool hasPrepared = nextTeamOne != null
+                && room.TryGetPreparedPlayers(nextTeamMode, nextTeamOne.Id, out prepared);
+            CompetePlayer[] nextPlayers = hasPrepared ? prepared.Active : room.Players.Where(player => player.IsActive).ToArray();
+            CompetePlayer[] nextRegularPlayers = hasPrepared ? prepared.Regular : nextTeamMode ? Array.Empty<CompetePlayer>() : nextPlayers;
             CompetePlayer[] nextTeamOnePlayers = nextTeamMode
-                ? nextPlayers.Where(player => player.TeamId == nextTeamOne.Id).ToArray()
+                ? hasPrepared ? prepared.TeamOne : nextPlayers.Where(player => player.TeamId == nextTeamOne.Id).ToArray()
                 : Array.Empty<CompetePlayer>();
             CompetePlayer[] nextTeamTwoPlayers = nextTeamMode
-                ? nextPlayers.Where(player => player.TeamId != nextTeamOne.Id).ToArray()
+                ? hasPrepared ? prepared.TeamTwo : nextPlayers.Where(player => player.TeamId != nextTeamOne.Id).ToArray()
                 : Array.Empty<CompetePlayer>();
 
             bool needsReload = _teamMode != nextTeamMode ||

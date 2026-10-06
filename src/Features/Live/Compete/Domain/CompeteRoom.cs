@@ -16,6 +16,16 @@ namespace ScoreSaber.Features.Live.Compete.Domain {
         internal IReadOnlyList<CompetePlayer> Players { get; }
         internal bool LocalPlayerReady { get; }
         internal int PlayerCount { get; }
+        private OwnedRoomDetailsPreparation.PreparedPlayers _preparedPlayers;
+
+        internal void AttachPreparedPlayers(OwnedRoomDetailsPreparation.PreparedPlayers prepared) {
+            _preparedPlayers = prepared;
+        }
+
+        internal bool TryGetPreparedPlayers(bool teamMode, string teamOneId, out OwnedRoomDetailsPreparation.PreparedPlayers prepared) {
+            prepared = _preparedPlayers;
+            return prepared != null && prepared.Matches(Players, teamMode, teamOneId);
+        }
 
         internal CompeteRoom(
             string id,

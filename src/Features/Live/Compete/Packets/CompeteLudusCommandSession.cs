@@ -73,6 +73,8 @@ namespace ScoreSaber.Features.Live.Compete.Packets {
         }
 
         public CancellationToken ConnectionCancellationToken => _connectionCancellationToken();
+        internal bool CanPrepareOwnedRoomDetails { get; private set; }
+        internal void EnableOwnedRoomDetailsPreparation() => CanPrepareOwnedRoomDetails = true;
         public CompeteSongService SongService { get; }
         public CompeteDirectoryService DirectoryService { get; }
         public CompeteGameplayLauncher GameplayLauncher { get; }

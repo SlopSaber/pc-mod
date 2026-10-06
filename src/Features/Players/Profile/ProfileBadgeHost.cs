@@ -1,4 +1,5 @@
 using BeatSaberMarkupLanguage.Attributes;
+using System;
 using System.Collections.Generic;
 using UnityEngine.UI;
 
@@ -18,21 +19,42 @@ namespace ScoreSaber.Features.Players.Profile {
             }
         }
 
-        internal void SetBadges(IReadOnlyList<ProfileBadgeData> badges) {
+        internal void SetBadges(IReadOnlyList<ProfileBadgeData> badges) => SetBadges(badges, null);
+
+        internal void SetBadges(IReadOnlyList<ProfileBadgeData> badges, Func<bool> isCurrent) {
+            if (isCurrent != null && !isCurrent()) {
+                return;
+            }
             if (badges == null || badges.Count == 0) {
                 SetGridActive(false);
                 return;
             }
 
             SetGridActive(true);
+            if (isCurrent != null && !isCurrent()) {
+                return;
+            }
             int count = badges.Count < badgeList.Count ? badges.Count : badgeList.Count;
             for (int i = 0; i < count; i++) {
+                if (isCurrent != null && !isCurrent()) {
+                    return;
+                }
                 var cell = badgeList[i] as BadgeCell;
-                cell.SetData(badges[i].Image, badges[i].Description);
+                if (isCurrent == null) {
+                    cell.SetData(badges[i].Image, badges[i].Description);
+                } else {
+                    cell.SetData(badges[i].Image, badges[i].Description, isCurrent);
+                }
+                if (isCurrent != null && !isCurrent()) {
+                    return;
+                }
                 cell.SetActive(true);
             }
 
             for (int i = count; i < badgeList.Count; i++) {
+                if (isCurrent != null && !isCurrent()) {
+                    return;
+                }
                 (badgeList[i] as BadgeCell).SetActive(false);
             }
         }

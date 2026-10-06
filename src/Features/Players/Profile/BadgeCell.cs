@@ -2,6 +2,7 @@
 using BeatSaberMarkupLanguage.Attributes;
 using HMUI;
 using ScoreSaber.Core;
+using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -24,6 +25,17 @@ namespace ScoreSaber.Features.Players.Profile {
         public void SetData(string imageURL, string hoverHintText) {
 
             _image.SetImageAsync(imageURL).RunTask();
+            hoverHint = hoverHintText;
+        }
+
+        internal void SetData(string imageURL, string hoverHintText, Func<bool> isCurrent) {
+            if (!isCurrent()) {
+                return;
+            }
+            _image.SetImageAsync(imageURL).RunTask();
+            if (!isCurrent()) {
+                return;
+            }
             hoverHint = hoverHintText;
         }
 

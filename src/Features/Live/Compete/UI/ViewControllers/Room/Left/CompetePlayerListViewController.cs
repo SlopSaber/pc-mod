@@ -230,11 +230,14 @@ namespace ScoreSaber.Features.Live.Compete.UI.ViewControllers.Room.Left {
                 _profileDetailView.playerNameText.text = name;
             }
 
+            Guid profileRequest = Guid.Empty;
             try {
-                await _profileDetailView.ShowProfile(playerId);
+                await _profileDetailView.ShowProfile(playerId, out profileRequest);
             } catch (Exception ex) {
                 Plugin.Log.Warn($"Failed to show live room player profile: {ex.Message}");
-                _profileDetailView.SetLoadingState(false);
+                if (this != null && _profileDetailView != null) {
+                    _profileDetailView.SetLoadingState(false, profileRequest);
+                }
             }
         }
 

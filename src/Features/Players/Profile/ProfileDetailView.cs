@@ -95,6 +95,8 @@ namespace ScoreSaber.Features.Players.Profile {
         private PlayerProfileService _playerProfileService = null;
         private ScoreSaberUIMaterials _materials = null;
         private IDisposable _hotReload;
+        private Guid _profileRequest;
+        private bool _destroyed;
 
         [Inject]
         private void Construct(PlayerProfileService playerProfileService, ScoreSaberUIMaterials materials) {
@@ -108,7 +110,11 @@ namespace ScoreSaber.Features.Players.Profile {
             _hotReload = hotReload;
         }
 
-        private void OnDestroy() => _hotReload?.Dispose();
+        private void OnDestroy() {
+            _destroyed = true;
+            _profileRequest = Guid.Empty;
+            _hotReload?.Dispose();
+        }
 
         [UIAction("profile-url-click")]
         private void ProfileURLClicked() {
@@ -133,28 +139,77 @@ namespace ScoreSaber.Features.Players.Profile {
             ApplyRoundedMaterials();
         }
 
-        internal async Task ShowProfile(string playerId) {
-            ApplyCrown(null);
-            SetLoadingState(true);
+        internal Task ShowProfile(string playerId) => ShowProfile(playerId, out _);
 
-            _profileInfo = ProfileDetailData.Create(await _playerProfileService.GetPlayerInfo(playerId, full: true));
+        internal Task ShowProfile(string playerId, out Guid request) {
+            request = Guid.NewGuid();
+            _profileRequest = request;
+            return ShowProfileCore(playerId, request);
+        }
 
-            await ApplyProfileFont(_profileInfo);
+        internal bool IsCurrentProfileRequest(Guid request) =>
+            request != Guid.Empty && !_destroyed && this != null && request == _profileRequest;
 
-            playerNameText.text = _profileInfo.DisplayName;
+        private async Task ShowProfileCore(string playerId, Guid request) {
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            ApplyCrown(null, request);
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            SetLoadingState(true, request);
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+
+            var player = await _playerProfileService.GetPlayerInfo(playerId, full: true);
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            ProfileDetailData profile = await ProfileDetailData.PrepareOwned(player);
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            profile.Player = player;
+            _profileInfo = profile;
+
+            await ApplyProfileFont(profile, request);
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            playerNameText.text = profile.DisplayName;
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
 #pragma warning disable CS0612 // Type or member is obsolete
-            profilePicture.SetImage(_profileInfo.Avatar);
+            profilePicture.SetImage(profile.Avatar);
 #pragma warning restore CS0612 // Type or member is obsolete
-
-            rankText.text = _profileInfo.RankText;
-            ppText.text = _profileInfo.PPText;
-
-            rankedAccText.text = _profileInfo.RankedAccuracyText;
-            totalScoreText.text = _profileInfo.TotalScoreText;
-
-            SetProfileBadges(_profileInfo.Badges);
-            ApplyCrown(_profileInfo.Crown);
-            SetLoadingState(false);
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            rankText.text = profile.RankText;
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            ppText.text = profile.PPText;
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            rankedAccText.text = profile.RankedAccuracyText;
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            totalScoreText.text = profile.TotalScoreText;
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            _badgeHost.SetBadges(profile.Badges, () => IsCurrentProfileRequest(request));
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            ApplyCrown(profile.Crown, request);
+            SetLoadingState(false, request);
         }
 
         public void SetProfileBadges(System.Collections.Generic.IReadOnlyList<ProfileBadgeData> badges) => _badgeHost.SetBadges(badges);
@@ -164,16 +219,39 @@ namespace ScoreSaber.Features.Players.Profile {
             profileSetLoading = loading;
         }
 
-        private async Task ApplyProfileFont(ProfileDetailData profile) {
+        internal void SetLoadingState(bool loading, Guid request) {
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            profileSet = !loading;
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            profileSetLoading = loading;
+        }
 
+        private async Task ApplyProfileFont(ProfileDetailData profile, Guid request) {
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
             if (profile.UsesFurryFont) {
                 var mat = await _materials.GetFurryFontMaterial();
+                if (!IsCurrentProfileRequest(request)) {
+                    return;
+                }
                 playerNameText.fontMaterial = mat;
+                if (!IsCurrentProfileRequest(request)) {
+                    return;
+                }
                 _isCyan = true;
                 return;
             }
             if (_isCyan) {
-                playerNameText.fontMaterial = _materials.DefaultFontMaterial;
+                var mat = _materials.DefaultFontMaterial;
+                if (!IsCurrentProfileRequest(request)) {
+                    return;
+                }
+                playerNameText.fontMaterial = mat;
             }
         }
 
@@ -186,18 +264,36 @@ namespace ScoreSaber.Features.Players.Profile {
             modalPic.material = _materials.RoundedImageMaterial;
         }
 
-        private void ApplyCrown(ProfileCrownData crown) {
-
-            profilePrefixPicture = null;
-            bool hasCrown = crown != null && crown.HasCrown;
-            profileHoverHint.enabled = hasCrown;
-
-            if (!hasCrown) {
+        private void SetProfilePrefixPicture(string value, Guid request) {
+            if (!IsCurrentProfileRequest(request)) {
                 return;
             }
+            bool hasImage = value != null;
+            _profilePrefixPicture.gameObject.SetActive(hasImage);
+            if (hasImage && IsCurrentProfileRequest(request)) {
+                _profilePrefixPicture.SetImageAsync(value).RunTask();
+            }
+        }
 
-            profilePrefixPicture = crown.Image;
-            profileHoverHint.text = crown.Description;
+        private void ApplyCrown(ProfileCrownData crown, Guid request) {
+            SetProfilePrefixPicture(null, request);
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            bool hasCrown = crown != null && crown.HasCrown;
+            var hint = profileHoverHint;
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            hint.enabled = hasCrown;
+            if (!hasCrown || !IsCurrentProfileRequest(request)) {
+                return;
+            }
+            SetProfilePrefixPicture(crown.Image, request);
+            if (!IsCurrentProfileRequest(request)) {
+                return;
+            }
+            hint.text = crown.Description;
         }
 
         protected void NotifyPropertyChanged([CallerMemberName] string propertyName = "") => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

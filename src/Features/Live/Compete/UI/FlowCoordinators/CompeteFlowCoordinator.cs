@@ -419,10 +419,7 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
             _loadingTransitioning = true;
             _loadingViewController.SetMessage(loadingMessage);
             if (isCurrent != null && !LoadingIsCurrent()) {
-                if (_loadingCancellation != null && _loadingCancellation.Token == token) {
-                    _directoryLoadingCurrent = null;
-                    _loadingTransitioning = false;
-                }
+                RetireDirectoryLoading(token, isCurrent);
                 return;
             }
             PresentViewController(_loadingViewController);

@@ -215,25 +215,22 @@ namespace ScoreSaber.Core.Api {
                 GetSessionKey(session),
                 cancellationToken);
 
-            return new PagedResult<PlayerSummary> {
-                Items = response.Data.Select(player => GeneratedModelMapper.ToDomain(player)).ToList(),
-                Metadata = GeneratedModelMapper.ToDomain(response.Metadata)
-            };
+            return await OwnedPlayerDomainPreparation.Prepare(response);
         }
 
         public async Task<PlayerProfile> GetPlayerProfile(string playerId, bool full, int? realmId, CancellationToken cancellationToken) {
             if (full) {
                 PlayerProfileResponse response = await CreateClient().GetPlayerAsync(playerId, realmId, cancellationToken);
-                return GeneratedModelMapper.ToDomain(response);
+                return await OwnedPlayerDomainPreparation.Prepare(response);
             }
 
             PlayerBasicProfileResponse basicResponse = await CreateClient().GetPlayerBasicAsync(playerId, realmId, cancellationToken);
-            return GeneratedModelMapper.ToDomain(basicResponse);
+            return await OwnedPlayerDomainPreparation.Prepare(basicResponse);
         }
 
         public async Task<List<PlayerHistoryPoint>> GetGlobalPlayerHistory(string playerId, CancellationToken cancellationToken) {
             List<GlobalPlayerHistoryEntry> response = await CreateClient().GetGlobalPlayerHistoryAsync(playerId, cancellationToken);
-            return response.Select(point => GeneratedModelMapper.ToDomain(point)).ToList();
+            return await OwnedPlayerDomainPreparation.Prepare(response);
         }
 
         public async Task<byte[]> DownloadReplay(int scoreId, CancellationToken cancellationToken) {

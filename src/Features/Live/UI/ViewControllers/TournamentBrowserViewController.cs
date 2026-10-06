@@ -49,6 +49,31 @@ namespace ScoreSaber.Features.Live.UI.ViewControllers {
             ReloadList();
         }
 
+        internal void SetOwnedTournaments(IEnumerable<CompeteTournament> tournaments, Func<bool> isCurrent) {
+            List<object> cells = new List<object>();
+            foreach (CompeteTournament tournament in tournaments) {
+                if (!isCurrent()) return;
+                var cell = new CompeteTournamentCell(tournament);
+                if (!isCurrent()) return;
+                cells.Add(cell);
+            }
+            if (!isCurrent()) return;
+            _tournaments.Clear();
+            _tournaments.AddRange(cells);
+            _hasTournaments = _tournaments.Count > 0;
+            NotifyPropertyChanged(nameof(hasTournaments));
+            if (!isCurrent()) return;
+            NotifyPropertyChanged(nameof(tournamentsEmpty));
+            if (!isCurrent() || _tournamentList == null) return;
+            _tournamentList.SetData(_tournaments);
+            if (!isCurrent()) return;
+            var table = _tournamentList.GetTableView();
+            if (!isCurrent()) return;
+            table.ReloadData();
+            if (!isCurrent()) return;
+            table.ClearSelection();
+        }
+
         [UIAction("refresh-tournaments")]
         private void RefreshClicked() {
             RefreshRequested?.Invoke();

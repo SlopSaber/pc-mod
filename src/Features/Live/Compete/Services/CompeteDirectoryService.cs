@@ -1,3 +1,4 @@
+using IPA.Utilities.Async;
 using ScoreSaber.Core.Api;
 using ScoreSaber.Core.Api.Generated;
 using ScoreSaber.Features.Live.Compete.Domain;
@@ -7,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,20 +25,49 @@ namespace ScoreSaber.Features.Live.Compete.Services {
         internal async Task<IReadOnlyList<CompeteTournament>> GetActiveTournaments(CancellationToken cancellationToken) {
             GameSession session = await GetSession(cancellationToken);
             List<LivePlayerTournamentSummary> tournaments = await _apiClient.ListLivePlayerTournaments(session, cancellationToken);
-            Plugin.Log.Info($"Live tournaments loaded for player {session.PlayerId}: {tournaments.Count}");
-            return tournaments
-                .Select(tournament => new CompeteTournament(
-                    tournament.TournamentId ?? string.Empty,
-                    tournament.Name ?? tournament.TournamentId ?? "Tournament",
-                    tournament.RoomSummary ?? string.Empty))
-                .ToArray();
+            var capture = await OnOwner(() => {
+                Plugin.Log.Info($"Live tournaments loaded for player {session.PlayerId}: {tournaments.Count}");
+                OwnedDirectoryPreparation.TryCaptureTournaments(tournaments, out var owned);
+                return owned;
+            });
+            if (capture == null || capture.Owned.Length == 0) {
+                return await OnOwner(() => MapTournaments(tournaments));
+            }
+            CompeteTournament[] prepared = await OwnedDirectoryPreparation.QueueTournaments(capture.Owned);
+            return await OnOwner(() => {
+                cancellationToken.ThrowIfCancellationRequested();
+                return capture.Matches(tournaments) ? prepared : MapTournaments(tournaments);
+            });
+        }
+
+        private static CompeteTournament[] MapTournaments(IEnumerable<LivePlayerTournamentSummary> tournaments) {
+            return tournaments.Select(tournament => new CompeteTournament(
+                tournament.TournamentId ?? string.Empty,
+                tournament.Name ?? tournament.TournamentId ?? "Tournament",
+                tournament.RoomSummary ?? string.Empty)).ToArray();
         }
 
         internal async Task<IReadOnlyList<CompeteRoom>> GetJoinableRooms(string tournamentId, CancellationToken cancellationToken) {
             GameSession session = await GetSession(cancellationToken);
             List<LivePlayerRoomSummary> rooms = await _apiClient.ListLivePlayerRooms(tournamentId, session, cancellationToken);
-            Plugin.Log.Info($"Live rooms loaded for player {session.PlayerId} in {tournamentId}: {rooms.Count}");
-            return rooms.Select(ToDomain).ToArray();
+            var capture = await OnOwner(() => {
+                Plugin.Log.Info($"Live rooms loaded for player {session.PlayerId} in {tournamentId}: {rooms.Count}");
+                OwnedDirectoryPreparation.TryCaptureRooms(rooms, out var owned);
+                return owned;
+            });
+            if (capture == null || capture.Owned.Length == 0) {
+                return await OnOwner(() => rooms.Select(ToDomain).ToArray());
+            }
+            var prepared = await OwnedDirectoryPreparation.QueueRooms(capture.Owned);
+            return await OnOwner(() => {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!capture.Matches(rooms)) {
+                    return rooms.Select(ToDomain).ToArray();
+                }
+                return prepared.Select(room => new CompeteRoom(
+                    room.MatchId, room.TournamentId, room.Name, room.InviteCode, room.MatchId, room.State, room.Mode,
+                    Array.Empty<CompeteTeam>(), null, Array.Empty<CompetePlayer>(), false, room.PlayerCount)).ToArray();
+            });
         }
 
         internal async Task<CompeteRoom> GetRoom(string tournamentId, string matchId, CancellationToken cancellationToken) {
@@ -76,7 +107,44 @@ namespace ScoreSaber.Features.Live.Compete.Services {
                 ToInt(room.PlayerCount));
         }
 
+        private sealed class RosterCapture {
+            internal OwnedDirectoryPreparation.ListCapture<LivePlayerRoomDetailsMembersItem> Members;
+            internal OwnedDirectoryPreparation.CultureCapture Culture;
+            internal bool HasLocalPlayer;
+            internal string LocalPlayerId;
+        }
+
         private async Task<CompeteRoom> ToDomain(LivePlayerRoomDetails room, CancellationToken cancellationToken) {
+            RosterCapture capture = await OnOwner(() => {
+                if (room == null || room.GetType() != typeof(LivePlayerRoomDetails) ||
+                    !OwnedDirectoryPreparation.TryCaptureCulture(out var culture) ||
+                    !OwnedDirectoryPreparation.TryCaptureMembers(room.Members, out var members)) {
+                    return null;
+                }
+                return new RosterCapture {
+                    Members = members, Culture = culture,
+                    HasLocalPlayer = _gameSessionService.LocalPlayerInfo != null,
+                    LocalPlayerId = _gameSessionService.LocalPlayerInfo?.playerId
+                };
+            });
+            if (capture == null || capture.Members.Owned.Length == 0) {
+                return await OnOwner(() => ToDomainOnCaller(room, cancellationToken)).Unwrap();
+            }
+            var roster = await OwnedDirectoryPreparation.QueueRoster(capture.Members.Owned,
+                capture.HasLocalPlayer, capture.LocalPlayerId, capture.Culture.Owned);
+            return await OnOwner(() => {
+                cancellationToken.ThrowIfCancellationRequested();
+                bool hasLocalPlayer = _gameSessionService.LocalPlayerInfo != null;
+                string localPlayerId = _gameSessionService.LocalPlayerInfo?.playerId;
+                if (!capture.Members.Matches(room.Members) || !capture.Culture.Matches() ||
+                    hasLocalPlayer != capture.HasLocalPlayer || localPlayerId != capture.LocalPlayerId) {
+                    return ToDomainOnCaller(room, cancellationToken);
+                }
+                return CompletePreparedRoom(room, roster, cancellationToken);
+            }).Unwrap();
+        }
+
+        private async Task<CompeteRoom> ToDomainOnCaller(LivePlayerRoomDetails room, CancellationToken cancellationToken) {
             CompeteTeam[] teams = BuildTeams(room.Members);
             CompetePlayer[] players = room.Members
                 .Where(member => member.Role == LivePlayerRoomDetailsMembersItemRole.PLAYER)
@@ -94,6 +162,22 @@ namespace ScoreSaber.Features.Live.Compete.Services {
                 teams,
                 await ToSong(room.SelectedSong, cancellationToken),
                 players,
+                false,
+                ToInt(room.PlayerCount));
+        }
+
+        private async Task<CompeteRoom> CompletePreparedRoom(LivePlayerRoomDetails room, OwnedDirectoryPreparation.Roster roster, CancellationToken cancellationToken) {
+            return new CompeteRoom(
+                room.MatchId ?? string.Empty,
+                room.TournamentId ?? string.Empty,
+                RoomName(room.MatchId),
+                room.InviteCode ?? string.Empty,
+                room.MatchId ?? string.Empty,
+                FormatRoomState(room.State.ToString()),
+                room.RosterMode == LivePlayerRoomDetailsRosterMode.TEAM ? CompetePlayerListMode.Teams : CompetePlayerListMode.Regular,
+                roster.Teams,
+                await ToSong(room.SelectedSong, cancellationToken),
+                roster.Players,
                 false,
                 ToInt(room.PlayerCount));
         }
@@ -120,19 +204,44 @@ namespace ScoreSaber.Features.Live.Compete.Services {
             if (song == null) {
                 return null;
             }
-
             string stars = await FetchSongStars(song, cancellationToken);
+            var capture = await OnOwner(() => {
+                var owned = OwnedDirectoryPreparation.CopySong(song);
+                OwnedDirectoryPreparation.TryCaptureCulture(out var culture);
+                return Tuple.Create(owned, culture);
+            });
+            if (capture.Item1 == null || capture.Item2 == null) {
+                return await OnOwner(() => BuildSong(song, stars, null));
+            }
+            string[] text = null;
+            ExceptionDispatchInfo failure = null;
+            try {
+                text = await OwnedDirectoryPreparation.QueueSong(capture.Item1, capture.Item2.Owned);
+            } catch (Exception ex) {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            return await OnOwner(() => {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!OwnedDirectoryPreparation.SongMatches(song, capture.Item1) || !capture.Item2.Matches()) {
+                    return BuildSong(song, stars, null);
+                }
+                failure?.Throw();
+                return BuildSong(capture.Item1, stars, text);
+            });
+        }
+
+        private static CompeteSongSelection BuildSong(LivePlayerRoomDetailsSelectedSong song, string stars, string[] text) {
             return new CompeteSongSelection(
                 null,
                 default,
-                DisplaySongName(song.SongName, song.SongSubName),
+                text == null ? DisplaySongName(song.SongName, song.SongSubName) : text[0],
                 song.LevelAuthorName ?? song.SongAuthorName ?? "Unknown",
-                FormatDifficulty(song.Difficulty.ToString()),
-                song.Characteristic.ToString(),
+                text == null ? FormatDifficulty(song.Difficulty.ToString()) : text[1],
+                text == null ? song.Characteristic.ToString() : text[2],
                 song.CoverUrl ?? string.Empty,
-                FormatDuration(song.DurationSeconds),
-                Math.Round(song.Bpm).ToString(CultureInfo.InvariantCulture),
-                song.Nps <= 0 ? "--" : song.Nps.ToString("0.00", CultureInfo.InvariantCulture),
+                text == null ? FormatDuration(song.DurationSeconds) : text[3],
+                text == null ? Math.Round(song.Bpm).ToString(CultureInfo.InvariantCulture) : text[4],
+                text == null ? (song.Nps <= 0 ? "--" : song.Nps.ToString("0.00", CultureInfo.InvariantCulture)) : text[5],
                 "--",
                 "--",
                 "--",
@@ -151,11 +260,27 @@ namespace ScoreSaber.Features.Live.Compete.Services {
 
             try {
                 MapDetailsResponse map = await _apiClient.GetMapByHash(hash, cancellationToken);
-                return FormatStars(SelectLeaderboard(map, song)?.Realm?.Stars);
+                var capture = await OnOwner(() => {
+                    if (map == null || map.GetType() != typeof(MapDetailsResponse) ||
+                        !OwnedDirectoryPreparation.TryCaptureLeaderboards(map.Leaderboards, out var leaderboards)) {
+                        return null;
+                    }
+                    var ownedSong = OwnedDirectoryPreparation.CopySong(song);
+                    return ownedSong == null ? null : Tuple.Create(leaderboards, ownedSong);
+                });
+                if (capture == null || capture.Item1.Owned.Length == 0) {
+                    return await OnOwner(() => FormatStars(SelectLeaderboard(map, song)?.Realm?.Stars));
+                }
+                string prepared = await OwnedDirectoryPreparation.QueueStars(capture.Item1.Owned, capture.Item2);
+                return await OnOwner(() => {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return capture.Item1.Matches(map.Leaderboards) && OwnedDirectoryPreparation.SongMatches(song, capture.Item2)
+                        ? prepared : FormatStars(SelectLeaderboard(map, song)?.Realm?.Stars);
+                });
             } catch (OperationCanceledException) {
                 throw;
             } catch (Exception ex) {
-                Plugin.Log.Warn($"Unable to fetch ScoreSaber live room song stars: {ex.Message}");
+                await OnOwner(() => Plugin.Log.Warn($"Unable to fetch ScoreSaber live room song stars: {ex.Message}"));
                 return "--";
             }
         }
@@ -332,6 +457,51 @@ namespace ScoreSaber.Features.Live.Compete.Services {
 
         private static int ToInt(double value) {
             return (int)Math.Round(value);
+        }
+
+        private static Task OnOwner(Action action) {
+            return UnityMainThreadTaskScheduler.Factory.StartNew(action);
+        }
+
+        private static Task<T> OnOwner<T>(Func<T> action) {
+            return UnityMainThreadTaskScheduler.Factory.StartNew(action);
+        }
+
+        internal static string PrepareRoomState(string state) => FormatRoomState(state);
+
+        internal static OwnedDirectoryPreparation.Roster PrepareRoster(LivePlayerRoomDetailsMembersItem[] members, bool hasLocalPlayer, string localPlayerId, CultureInfo culture) {
+            CompeteTeam[] teams = members.Where(member => member.TeamId.HasValue)
+                .GroupBy(member => member.TeamId.Value).OrderBy(group => group.Key)
+                .Select((group, index) => new CompeteTeam(TeamId(group.Key),
+                    group.Select(member => member.TeamName).FirstOrDefault(name => !string.IsNullOrEmpty(name)) ?? string.Format(culture, "Team {0}", index + 1))).ToArray();
+            CompetePlayer[] players = members.Where(member => member.Role == LivePlayerRoomDetailsMembersItemRole.PLAYER)
+                .Select(member => {
+                    string teamId = member.TeamId.HasValue ? TeamId(member.TeamId.Value) : string.Empty;
+                    string playerId = member.PlayerId ?? member.Player?.Id ?? string.Empty;
+                    return new CompetePlayer(member.Player?.Name ?? playerId ?? "Player", FormatMemberStatus(member), teamId,
+                        string.Empty, hasLocalPlayer && string.Equals(localPlayerId, playerId, StringComparison.Ordinal),
+                        playerId, member.IsBot, member.Player?.Avatar, member.Connected);
+                }).ToArray();
+            return new OwnedDirectoryPreparation.Roster(teams, players);
+        }
+
+        internal static string PrepareStars(MapDetailsResponseLeaderboardsItem[] leaderboards, LivePlayerRoomDetailsSelectedSong song) {
+            return FormatStars(SelectLeaderboard(new MapDetailsResponse { Leaderboards = leaderboards.ToList() }, song)?.Realm?.Stars);
+        }
+
+        internal static string[] PrepareSongText(LivePlayerRoomDetailsSelectedSong song, CultureInfo culture) {
+            string duration;
+            if (song.DurationSeconds <= 0) {
+                duration = "--";
+            } else {
+                TimeSpan time = TimeSpan.FromSeconds(song.DurationSeconds);
+                duration = string.Format(culture, "{0}:{1:00}", (int)time.TotalMinutes, time.Seconds);
+            }
+            return new[] {
+                DisplaySongName(song.SongName, song.SongSubName), FormatDifficulty(song.Difficulty.ToString()),
+                song.Characteristic.ToString(), duration, Math.Round(song.Bpm).ToString(CultureInfo.InvariantCulture),
+                song.Nps <= 0 ? "--" : song.Nps.ToString("0.00", CultureInfo.InvariantCulture)
+            };
         }
     }
 }

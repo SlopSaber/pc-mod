@@ -55,6 +55,11 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         private string _roomCloseStatus;
         private string _gameplayRoomCloseStatus;
         private CancellationTokenSource _loadingCancellation;
+        private bool _directoryActive;
+        private long _directoryLifetime;
+        private long _tournamentRequest;
+        private long _roomRequest;
+        private Func<bool> _directoryLoadingCurrent;
 
         [Inject]
         internal void Construct(
@@ -106,6 +111,7 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         }
 
         protected override void DidActivate(bool firstActivation, bool addedToHierarchy, bool screenSystemEnabling) {
+            _directoryActive = true;
             SubscribeTournamentBrowserEvents();
 
             if (firstActivation) {
@@ -116,6 +122,15 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         }
 
         protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling) {
+            _directoryActive = false;
+            _directoryLifetime++;
+            _tournamentRequest++;
+            _roomRequest++;
+            if (_directoryLoadingCurrent != null) {
+                _directoryLoadingCurrent = null;
+                _loadingTransitioning = false;
+                _loadingCancellation?.Cancel();
+            }
             UnsubscribeTournamentBrowserEvents();
 
             if (removedFromHierarchy) {
@@ -165,6 +180,8 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         }
 
         private void SelectJoinViaCode() {
+            _tournamentRequest++;
+            _roomRequest++;
             _codeEntryViewController.Reset();
             PresentViewController(_codeEntryViewController);
         }
@@ -174,8 +191,11 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         }
 
         private void SelectTournament(CompeteTournament tournament) {
+            _tournamentRequest++;
+            _roomRequest++;
             _selectedTournament = tournament;
             _roomListViewController.SetTournament(tournament);
+            if (!ReferenceEquals(_selectedTournament, tournament)) return;
             LoadRooms(true).RunTask();
         }
 
@@ -192,11 +212,14 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
                 return;
             }
 
+            _roomRequest++;
             EnterRoom(room, false, RoomJoinFailed).RunTask();
         }
 
         private void BackToModeSelection() {
             if (topViewController == _tournamentBrowserViewController || topViewController == _codeEntryViewController) {
+                _tournamentRequest++;
+                _roomRequest++;
                 _selectedTournament = null;
                 this.DismissView(topViewController).RunTask();
             }
@@ -204,6 +227,7 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
 
         private void BackToTournaments() {
             if (topViewController == _roomListViewController) {
+                _roomRequest++;
                 _selectedTournament = null;
                 this.DismissView(_roomListViewController).RunTask();
             }
@@ -228,56 +252,72 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
         }
 
         private async Task LoadTournaments(bool present) {
+            if (!_directoryActive || (present && _loadingTransitioning)) return;
+            long lifetime = _directoryLifetime;
+            long request = ++_tournamentRequest;
+            bool IsCurrent() => _directoryActive && lifetime == _directoryLifetime && request == _tournamentRequest;
             if (present) {
-                await PresentWithLoading(
-                    _tournamentBrowserViewController,
-                    "Loading tournaments...",
-                    async token => {
-                        IReadOnlyList<CompeteTournament> tournaments = await _directoryService.GetActiveTournaments(token);
-                        await OnMainThread(() => _tournamentBrowserViewController.SetTournaments(tournaments));
+                await PresentWithLoading(_tournamentBrowserViewController, "Loading tournaments...", async token => {
+                    IReadOnlyList<CompeteTournament> tournaments = await _directoryService.GetActiveTournaments(token);
+                    await OnMainThread(() => {
+                        bool Current() => IsCurrent() && !token.IsCancellationRequested;
+                        if (Current()) _tournamentBrowserViewController.SetOwnedTournaments(tournaments, Current);
                     });
+                }, isCurrent: IsCurrent);
                 return;
             }
-
             try {
                 IReadOnlyList<CompeteTournament> tournaments = await _directoryService.GetActiveTournaments(CancellationToken.None);
-                await OnMainThread(() => _tournamentBrowserViewController.SetTournaments(tournaments));
+                await OnMainThread(() => {
+                    if (IsCurrent()) _tournamentBrowserViewController.SetOwnedTournaments(tournaments, IsCurrent);
+                });
             } catch (Exception ex) {
-                Plugin.Log.Warn($"Failed to refresh live tournaments: {ex.Message}");
+                await OnMainThread(() => {
+                    if (IsCurrent()) Plugin.Log.Warn($"Failed to refresh live tournaments: {ex.Message}");
+                });
             }
         }
 
         private async Task LoadRooms(bool present, string refreshingStatus = null, string finishedStatus = null) {
-            if (_selectedTournament == null) {
-                return;
-            }
-
+            CompeteTournament tournament = _selectedTournament;
+            if (!_directoryActive || tournament == null || (present && _loadingTransitioning)) return;
+            long lifetime = _directoryLifetime;
+            long request = ++_roomRequest;
+            bool IsCurrent() => _directoryActive && lifetime == _directoryLifetime && request == _roomRequest &&
+                ReferenceEquals(_selectedTournament, tournament);
             if (present) {
-                await PresentWithLoading(
-                    _roomListViewController,
-                    "Loading rooms...",
-                    async token => {
-                        IReadOnlyList<CompeteRoom> rooms = await _directoryService.GetJoinableRooms(_selectedTournament.Id, token);
-                        await OnMainThread(() => _roomListViewController.SetRooms(rooms));
+                await PresentWithLoading(_roomListViewController, "Loading rooms...", async token => {
+                    IReadOnlyList<CompeteRoom> rooms = await _directoryService.GetJoinableRooms(tournament.Id, token);
+                    await OnMainThread(() => {
+                        bool Current() => IsCurrent() && !token.IsCancellationRequested;
+                        if (Current()) _roomListViewController.SetOwnedRooms(rooms, Current);
+                        if (Current()) _roomListViewController.ClearOwnedRefreshing(Current);
                     });
+                }, isCurrent: IsCurrent);
                 return;
             }
-
             try {
                 await OnMainThread(() => {
+                    if (!IsCurrent()) return;
                     _roomListViewController.SetStatus(refreshingStatus);
-                    _roomListViewController.SetRefreshing(true);
+                    if (IsCurrent()) _roomListViewController.SetOwnedRefreshing(true, IsCurrent);
                 });
-                IReadOnlyList<CompeteRoom> rooms = await _directoryService.GetJoinableRooms(_selectedTournament.Id, CancellationToken.None);
+                IReadOnlyList<CompeteRoom> rooms = await _directoryService.GetJoinableRooms(tournament.Id, CancellationToken.None);
                 await OnMainThread(() => {
-                    _roomListViewController.SetRooms(rooms);
-                    _roomListViewController.SetStatus(finishedStatus ?? string.Empty);
+                    if (!IsCurrent()) return;
+                    _roomListViewController.SetOwnedRooms(rooms, IsCurrent);
+                    if (IsCurrent()) _roomListViewController.SetStatus(finishedStatus ?? string.Empty);
                 });
             } catch (Exception ex) {
-                Plugin.Log.Warn($"Failed to refresh live rooms: {ex.Message}");
-                await OnMainThread(() => _roomListViewController.SetStatus("Couldn't refresh rooms."));
+                await OnMainThread(() => {
+                    if (!IsCurrent()) return;
+                    Plugin.Log.Warn($"Failed to refresh live rooms: {ex.Message}");
+                    if (IsCurrent()) _roomListViewController.SetStatus("Couldn't refresh rooms.");
+                });
             } finally {
-                await OnMainThread(() => _roomListViewController.SetRefreshing(false));
+                await OnMainThread(() => {
+                    if (IsCurrent()) _roomListViewController.SetOwnedRefreshing(false, IsCurrent);
+                });
             }
         }
 
@@ -327,23 +367,40 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
             Func<CancellationToken, Task> load,
             Action beforeShowTarget = null,
             Action finishedCallback = null,
-            Action<Exception> failedCallback = null) {
+            Action<Exception> failedCallback = null,
+            Func<bool> isCurrent = null) {
 
             if (_loadingTransitioning) {
                 return;
             }
 
             _loadingCancellation?.Cancel();
+            if (isCurrent != null && !isCurrent()) return;
             _loadingCancellation = new CancellationTokenSource();
             CancellationToken token = _loadingCancellation.Token;
+            _directoryLoadingCurrent = isCurrent;
+            bool LoadingIsCurrent() => isCurrent == null || (isCurrent() && _loadingCancellation != null && _loadingCancellation.Token == token);
             _loadingTransitioning = true;
             _loadingViewController.SetMessage(loadingMessage);
+            if (isCurrent != null && !LoadingIsCurrent()) {
+                if (_loadingCancellation != null && _loadingCancellation.Token == token) {
+                    _directoryLoadingCurrent = null;
+                    _loadingTransitioning = false;
+                }
+                return;
+            }
             PresentViewController(_loadingViewController);
 
             try {
                 await Task.Delay(LoadingTransitionDelayMs, token);
+                if (isCurrent != null) {
+                    await OnMainThread(() => {
+                        if (!LoadingIsCurrent() || token.IsCancellationRequested) throw new OperationCanceledException(token);
+                    });
+                }
                 await load(token);
                 await OnMainThread(() => {
+                    if (isCurrent != null && !LoadingIsCurrent()) return;
                     if (token.IsCancellationRequested) {
                         _loadingTransitioning = false;
                         _roomTransitioning = false;
@@ -351,15 +408,55 @@ namespace ScoreSaber.Features.Live.Compete.UI.FlowCoordinators {
                     }
 
                     beforeShowTarget?.Invoke();
+                    if (isCurrent != null && !LoadingIsCurrent()) return;
                     ReplaceTopViewController(viewController, () => {
+                        if (isCurrent != null && !LoadingIsCurrent()) return;
+                        _directoryLoadingCurrent = null;
                         _loadingTransitioning = false;
                         finishedCallback?.Invoke();
                     });
                 });
             } catch (OperationCanceledException) {
-                _loadingTransitioning = false;
-                _roomTransitioning = false;
+                if (isCurrent == null) {
+                    _loadingTransitioning = false;
+                    _roomTransitioning = false;
+                } else {
+                    await OnMainThread(() => {
+                        if (_loadingCancellation == null || _loadingCancellation.Token != token) return;
+                        _directoryLoadingCurrent = null;
+                        _loadingTransitioning = false;
+                        _roomTransitioning = false;
+                    });
+                }
             } catch (Exception ex) {
+                if (isCurrent != null) {
+                    await OnMainThread(() => {
+                        if (LoadingIsCurrent()) Plugin.Log.Warn($"Live compete load failed: {ex.Message}");
+                    });
+                    if (IsTournamentJoinBlockedStatus(ex.Message)) {
+                        await OnMainThread(() => {
+                            if (LoadingIsCurrent()) _loadingViewController.SetMessage(ex.Message, false);
+                        });
+                        await Task.Delay(3000);
+                    }
+                    await OnMainThread(() => {
+                        if (!LoadingIsCurrent()) {
+                            if (_loadingCancellation != null && _loadingCancellation.Token == token) {
+                                _directoryLoadingCurrent = null;
+                                _loadingTransitioning = false;
+                            }
+                            return;
+                        }
+                        _directoryLoadingCurrent = null;
+                        _loadingTransitioning = false;
+                        _roomTransitioning = false;
+                        failedCallback?.Invoke(ex);
+                        if (LoadingIsCurrent() && topViewController == _loadingViewController) {
+                            this.DismissView(_loadingViewController).RunTask();
+                        }
+                    });
+                    return;
+                }
                 Plugin.Log.Warn($"Live compete load failed: {ex.Message}");
                 bool showJoinError = IsTournamentJoinBlockedStatus(ex.Message);
                 if (showJoinError) {

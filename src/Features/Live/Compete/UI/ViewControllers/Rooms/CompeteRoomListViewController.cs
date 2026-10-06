@@ -87,6 +87,52 @@ namespace ScoreSaber.Features.Live.Compete.UI.ViewControllers.Rooms {
             ReloadList();
         }
 
+        internal void SetOwnedRooms(IEnumerable<CompeteRoom> rooms, Func<bool> isCurrent) {
+            List<object> cells = new List<object>();
+            foreach (CompeteRoom room in rooms) {
+                if (!isCurrent()) return;
+                var cell = new CompeteRoomCell(room);
+                if (!isCurrent()) return;
+                cells.Add(cell);
+            }
+            if (!isCurrent()) return;
+            _rooms.Clear();
+            _rooms.AddRange(cells);
+            _hasRooms = _rooms.Count > 0;
+            if (!NotifyOwned(nameof(hasRooms), isCurrent) || !NotifyOwned(nameof(roomsActive), isCurrent) ||
+                !NotifyOwned(nameof(roomsEmpty), isCurrent)) return;
+            ReloadOwnedList(isCurrent);
+        }
+
+        internal void ClearOwnedRefreshing(Func<bool> isCurrent) {
+            if (_refreshing) SetOwnedRefreshing(false, isCurrent);
+        }
+
+        internal void SetOwnedRefreshing(bool value, Func<bool> isCurrent) {
+            if (!isCurrent()) return;
+            _refreshing = value;
+            if (!NotifyOwned(nameof(refreshing), isCurrent) || !NotifyOwned(nameof(roomsActive), isCurrent) ||
+                !NotifyOwned(nameof(roomsEmpty), isCurrent) || !NotifyOwned(nameof(canRefresh), isCurrent)) return;
+            ReloadOwnedList(isCurrent);
+        }
+
+        private bool NotifyOwned(string propertyName, Func<bool> isCurrent) {
+            if (!isCurrent()) return false;
+            NotifyPropertyChanged(propertyName);
+            return isCurrent();
+        }
+
+        private void ReloadOwnedList(Func<bool> isCurrent) {
+            if (!isCurrent() || _roomList == null) return;
+            _roomList.SetData(_rooms);
+            if (!isCurrent()) return;
+            var table = _roomList.GetTableView();
+            if (!isCurrent()) return;
+            table.ReloadData();
+            if (!isCurrent()) return;
+            table.ClearSelection();
+        }
+
         internal void SetRefreshing(bool value) {
             refreshing = value;
             ReloadList();

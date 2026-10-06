@@ -5,6 +5,7 @@ using Legato.Platform.Friends;
 using Legato.Platform.Users;
 using OculusStudios.Platform.Core;
 using Steamworks;
+using ScoreSaber.Features.Players.Services;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -47,16 +48,17 @@ namespace Legato.Platform {
         }
 
         private async Task<string> GetSteamTicket() {
-            var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<Task<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task<string> preparedTicket = completion.Task.Unwrap();
             var ticket = HAuthTicket.Invalid;
             using var callback = Callback<GetTicketForWebApiResponse_t>.Create(response => {
-                if (response.m_hAuthTicket != ticket) return;
+                if (response.m_hAuthTicket != ticket || completion.Task.IsCompleted) return;
                 if (response.m_eResult != EResult.k_EResultOK || response.m_rgubTicket == null ||
                     response.m_cubTicket <= 0 || response.m_cubTicket > response.m_rgubTicket.Length) {
                     completion.TrySetException(new InvalidOperationException($"Steam ticket request failed: {response.m_eResult}"));
                     return;
                 }
-                completion.TrySetResult(BitConverter.ToString(response.m_rgubTicket, 0, response.m_cubTicket).Replace("-", ""));
+                completion.TrySetResult(OwnedAuthenticationPreparation.PrepareTicket(response.m_rgubTicket, response.m_cubTicket));
             });
             try {
                 // The game's access token is restricted to oculus-xplat-backend.
@@ -66,13 +68,13 @@ namespace Legato.Platform {
                 _steamTicket = ticket;
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                 var delay = Task.Delay(TimeSpan.FromSeconds(15), timeout.Token);
-                if (await Task.WhenAny(completion.Task, delay) != completion.Task) {
+                if (await Task.WhenAny(preparedTicket, delay) != preparedTicket) {
                     _lifetime.Token.ThrowIfCancellationRequested();
                     throw new TimeoutException("Steam authentication ticket timed out");
                 }
                 timeout.Cancel();
                 _lifetime.Token.ThrowIfCancellationRequested();
-                return await completion.Task;
+                return await preparedTicket;
             } catch {
                 ReleaseSteamTicket();
                 throw;

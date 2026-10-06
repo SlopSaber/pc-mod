@@ -154,9 +154,10 @@ namespace ScoreSaber.Features.Players.Services {
             var playerId = userInfo.platformUserId;
             var playerName = userInfo.userName;
             var friendIds = await _platformFriends.GetFriendUserIds();
-            var friends = string.Join(",", friendIds.Where(x => x != "0"));
-
-            return new LocalPlayerInfo(playerId, playerName, friends, platform, nonce);
+            OwnedAuthenticationPreparation.PreparedFriends prepared = await OwnedAuthenticationPreparation.PrepareFriends(friendIds);
+            return prepared.Count.HasValue
+                ? new LocalPlayerInfo(playerId, playerName, prepared.Text, platform, nonce, prepared.Count.Value)
+                : new LocalPlayerInfo(playerId, playerName, prepared.Text, platform, nonce);
         }
 
         private async Task<LocalPlayerInfo> CreateDevelopmentPlayerInfo(CancellationToken cancellationToken) {
@@ -181,7 +182,7 @@ namespace ScoreSaber.Features.Players.Services {
 
 
             try {
-                Plugin.Log.Debug($"Authenticating ScoreSaber player {playerInfo.playerId} with {CountFriendIds(playerInfo.playerFriends)} friends");
+                Plugin.Log.Debug($"Authenticating ScoreSaber player {playerInfo.playerId} with {(playerInfo.TryGetPreparedFriendCount(out int friendCount) ? friendCount : CountFriendIds(playerInfo.playerFriends))} friends");
                 var request = new GameAuthenticationRequest {
                     AuthType = Convert.ToInt32(playerInfo.authType),
                     PlayerId = playerInfo.playerId,

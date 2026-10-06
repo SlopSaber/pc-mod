@@ -110,20 +110,20 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
                 return true;
             }
 
-            CompeteSongSelection installed = await OnOwner(() => request.IsCurrent() ? session.SongService.ResolveInstalled(song, request.Token) : Task.FromResult<CompeteSongSelection>(null)).Unwrap();
+            CompeteSongSelection installed = await OnOwner(() => request.IsCurrent() ? session.SongService.ResolveInstalled(song, request.Token, request.IsCurrent) : Task.FromResult<CompeteSongSelection>(null)).Unwrap();
             if (installed != null) {
                 return await OnOwner(() => request.Publish(installed, LudusDownloadState.LudusDownloadStateDownloaded));
             }
             if (!await OnOwner(request.IsCurrent)) {
                 return false;
             }
-            CompeteSongSelection preview = await OnOwner(() => request.IsCurrent() ? session.SongService.CreatePreview(song, request.Token) : Task.FromResult<CompeteSongSelection>(null)).Unwrap();
+            CompeteSongSelection preview = await OnOwner(() => request.IsCurrent() ? session.SongService.CreatePreview(song, request.Token, request.IsCurrent) : Task.FromResult<CompeteSongSelection>(null)).Unwrap();
             if (!await OnOwner(() => request.Publish(preview, LudusDownloadState.LudusDownloadStateDownloading, "Downloading map..."))) {
                 return false;
             }
 
             try {
-                CompeteSongSelection resolved = await OnOwner(() => request.IsCurrent() ? session.SongService.ResolveOrDownload(song, request.Token) : Task.FromResult<CompeteSongSelection>(null)).Unwrap();
+                CompeteSongSelection resolved = await OnOwner(() => request.IsCurrent() ? session.SongService.ResolveOrDownload(song, request.Token, request.IsCurrent) : Task.FromResult<CompeteSongSelection>(null)).Unwrap();
                 return await OnOwner(() => {
                     if (!request.IsCurrent()) {
                         return false;
@@ -157,7 +157,7 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
             CompeteLudusCommandSession session, LiveSongCommand song, SongLoadRequest request) {
             try {
                 return await OnOwner(() => request.IsCurrent()
-                    ? session.SongService.ResolveInstalledAfterRefresh(song, request.Token)
+                    ? session.SongService.ResolveInstalledAfterRefresh(song, request.Token, request.IsCurrent)
                     : Task.FromResult<CompeteSongSelection>(null)).Unwrap();
             } catch (OperationCanceledException) {
                 throw;

@@ -14,7 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace ScoreSaber.Features.Live.Compete.Services {
-    internal class CompeteSongService {
+    internal partial class CompeteSongService {
         private const int SongRefreshTimeoutMs = 30000;
 
         private readonly BeatSaverService _beatSaver;
@@ -31,25 +31,47 @@ namespace ScoreSaber.Features.Live.Compete.Services {
             _beatmapLevelsModel = beatmapLevelsModel;
         }
 
-        internal async Task<CompeteSongSelection> ResolveOrDownload(LiveSongCommand song, CancellationToken cancellationToken) {
-            LiveSongDetails scoreSaberDetails = await TryFetchScoreSaberSongDetails(song, cancellationToken);
-            CompeteSongSelection installed = await ResolveInstalled(song, scoreSaberDetails, cancellationToken);
+        internal Task<CompeteSongSelection> ResolveOrDownload(LiveSongCommand song, CancellationToken cancellationToken) {
+            return ResolveOrDownload(song, cancellationToken, null);
+        }
+
+        internal async Task<CompeteSongSelection> ResolveOrDownload(LiveSongCommand song, CancellationToken cancellationToken, Func<bool> isCurrent) {
+            LiveSongDetails scoreSaberDetails = await TryFetchScoreSaberSongDetails(song, cancellationToken, isCurrent);
+            CompeteSongSelection installed = isCurrent == null
+                ? await ResolveInstalled(song, scoreSaberDetails, cancellationToken)
+                : await ResolveInstalledOwned(song, scoreSaberDetails, cancellationToken, isCurrent);
             if (installed != null) {
                 return installed;
             }
 
-            BeatSaverMap map = await TryFetchBeatSaverMap(song, cancellationToken);
-            BeatSaverVersion version = _beatSaver.SelectVersion(map, SongHash(song));
-            LiveSongDetails details = MergeSongDetails(scoreSaberDetails, BuildBeatSaverSongDetails(song, map, version));
-            await DownloadAndRefresh(SongHash(song), version, cancellationToken);
+            if (isCurrent != null && !await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent))) return null;
+            BeatSaverMap map = isCurrent == null ? await TryFetchBeatSaverMap(song, cancellationToken)
+                : await OnSongOwner(() => TryFetchBeatSaverMap(song, cancellationToken, isCurrent)).Unwrap();
+            BeatSaverVersion version = isCurrent == null ? _beatSaver.SelectVersion(map, SongHash(song))
+                : await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent) ? _beatSaver.SelectVersion(map, SongHash(song)) : null);
+            LiveSongDetails details = isCurrent == null ? MergeSongDetails(scoreSaberDetails, BuildBeatSaverSongDetails(song, map, version))
+                : await PrepareBeatSaverSong(song, map, version, scoreSaberDetails, cancellationToken, isCurrent);
+            if (isCurrent == null) {
+                await DownloadAndRefresh(SongHash(song), version, cancellationToken);
+            } else {
+                await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent)
+                    ? DownloadAndRefresh(SongHash(song), version, cancellationToken) : Task.CompletedTask).Unwrap();
+            }
 
-            CompeteSongSelection resolved = await ResolveInstalled(song, details, cancellationToken);
+            CompeteSongSelection resolved = isCurrent == null ? await ResolveInstalled(song, details, cancellationToken)
+                : await ResolveInstalledOwned(song, details, cancellationToken, isCurrent);
             if (resolved != null) {
                 return resolved;
             }
 
-            await RefreshSongs(cancellationToken);
-            resolved = await ResolveInstalled(song, details, cancellationToken);
+            if (isCurrent == null) {
+                await RefreshSongs(cancellationToken);
+                resolved = await ResolveInstalled(song, details, cancellationToken);
+            } else {
+                await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent) ? RefreshSongs(cancellationToken) : Task.CompletedTask).Unwrap();
+                if (!await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent))) return null;
+                resolved = await ResolveInstalledOwned(song, details, cancellationToken, isCurrent);
+            }
             if (resolved == null) {
                 throw new InvalidOperationException("SongCore could not resolve the downloaded song");
             }
@@ -57,14 +79,25 @@ namespace ScoreSaber.Features.Live.Compete.Services {
             return resolved;
         }
 
-        internal async Task<CompeteSongSelection> ResolveInstalled(LiveSongCommand song, CancellationToken cancellationToken) {
-            LiveSongDetails scoreSaberDetails = await TryFetchScoreSaberSongDetails(song, cancellationToken);
-            return await ResolveInstalled(song, scoreSaberDetails, cancellationToken);
+        internal Task<CompeteSongSelection> ResolveInstalled(LiveSongCommand song, CancellationToken cancellationToken) {
+            return ResolveInstalled(song, cancellationToken, null);
         }
 
-        internal async Task<CompeteSongSelection> ResolveInstalledAfterRefresh(LiveSongCommand song, CancellationToken cancellationToken) {
-            LiveSongDetails scoreSaberDetails = await TryFetchScoreSaberSongDetails(song, cancellationToken);
-            return await ResolveInstalledAfterRefresh(song, scoreSaberDetails, cancellationToken);
+        internal async Task<CompeteSongSelection> ResolveInstalled(LiveSongCommand song, CancellationToken cancellationToken, Func<bool> isCurrent) {
+            LiveSongDetails scoreSaberDetails = await TryFetchScoreSaberSongDetails(song, cancellationToken, isCurrent);
+            return isCurrent == null ? await ResolveInstalled(song, scoreSaberDetails, cancellationToken)
+                : await ResolveInstalledOwned(song, scoreSaberDetails, cancellationToken, isCurrent);
+        }
+
+        internal Task<CompeteSongSelection> ResolveInstalledAfterRefresh(LiveSongCommand song, CancellationToken cancellationToken) {
+            return ResolveInstalledAfterRefresh(song, cancellationToken, null);
+        }
+
+        internal async Task<CompeteSongSelection> ResolveInstalledAfterRefresh(LiveSongCommand song, CancellationToken cancellationToken, Func<bool> isCurrent) {
+            LiveSongDetails scoreSaberDetails = await TryFetchScoreSaberSongDetails(song, cancellationToken, isCurrent);
+            if (isCurrent == null) return await ResolveInstalledAfterRefresh(song, scoreSaberDetails, cancellationToken);
+            await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent) ? RefreshSongs(cancellationToken) : Task.CompletedTask).Unwrap();
+            return await ResolveInstalledOwned(song, scoreSaberDetails, cancellationToken, isCurrent);
         }
 
         private async Task<CompeteSongSelection> ResolveInstalled(LiveSongCommand song, LiveSongDetails scoreSaberDetails, CancellationToken cancellationToken) {
@@ -91,41 +124,72 @@ namespace ScoreSaber.Features.Live.Compete.Services {
             return await ResolveInstalled(song, scoreSaberDetails, cancellationToken);
         }
 
-        internal async Task<CompeteSongSelection> CreatePreview(LiveSongCommand song, CancellationToken cancellationToken) {
+        internal Task<CompeteSongSelection> CreatePreview(LiveSongCommand song, CancellationToken cancellationToken) {
+            return CreatePreview(song, cancellationToken, null);
+        }
+
+        internal async Task<CompeteSongSelection> CreatePreview(LiveSongCommand song, CancellationToken cancellationToken, Func<bool> isCurrent) {
             if (song == null) {
                 return null;
             }
 
-            LiveSongDetails scoreSaberDetails = await TryFetchScoreSaberSongDetails(song, cancellationToken);
-            BeatSaverMap map = await TryFetchBeatSaverMap(song, cancellationToken);
-            BeatSaverVersion version = _beatSaver.SelectVersion(map, SongHash(song));
-            return CreatePreview(song, MergeSongDetails(scoreSaberDetails, BuildBeatSaverSongDetails(song, map, version)));
+            LiveSongDetails scoreSaberDetails = await TryFetchScoreSaberSongDetails(song, cancellationToken, isCurrent);
+            if (isCurrent != null && !await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent))) return null;
+            BeatSaverMap map = isCurrent == null ? await TryFetchBeatSaverMap(song, cancellationToken)
+                : await OnSongOwner(() => TryFetchBeatSaverMap(song, cancellationToken, isCurrent)).Unwrap();
+            BeatSaverVersion version = isCurrent == null ? _beatSaver.SelectVersion(map, SongHash(song))
+                : await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent) ? _beatSaver.SelectVersion(map, SongHash(song)) : null);
+            if (isCurrent == null) return CreatePreview(song, MergeSongDetails(scoreSaberDetails, BuildBeatSaverSongDetails(song, map, version)));
+            LiveSongDetails details = await PrepareBeatSaverSong(song, map, version, scoreSaberDetails, cancellationToken, isCurrent);
+            return await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent) ? CreatePreview(song, details) : null);
         }
 
-        private async Task<LiveSongDetails> TryFetchScoreSaberSongDetails(LiveSongCommand song, CancellationToken cancellationToken) {
+        private async Task<LiveSongDetails> TryFetchScoreSaberSongDetails(LiveSongCommand song, CancellationToken cancellationToken, Func<bool> isCurrent) {
             string hash = SongHash(song);
             if (string.IsNullOrEmpty(hash)) {
                 return null;
             }
 
             try {
-                MapDetailsResponse map = await _apiClient.GetMapByHash(hash, cancellationToken);
-                return BuildScoreSaberSongDetails(song, map);
+                MapDetailsResponse map = isCurrent == null ? await _apiClient.GetMapByHash(hash, cancellationToken)
+                    : await OnSongOwner(() => SongPreparationIsCurrent(cancellationToken, isCurrent)
+                        ? _apiClient.GetMapByHash(hash, cancellationToken) : Task.FromResult<MapDetailsResponse>(null)).Unwrap();
+                return isCurrent == null ? BuildScoreSaberSongDetails(song, map)
+                    : await PrepareApiSong(song, map, cancellationToken, isCurrent);
             } catch (OperationCanceledException) {
                 throw;
             } catch (Exception ex) {
-                Plugin.Log.Warn($"Unable to fetch ScoreSaber live song details: {ex.Message}");
+                if (isCurrent == null) {
+                    Plugin.Log.Warn($"Unable to fetch ScoreSaber live song details: {ex.Message}");
+                } else {
+                    await OnSongOwner(() => {
+                        if (isCurrent()) Plugin.Log.Warn($"Unable to fetch ScoreSaber live song details: {ex.Message}");
+                        return true;
+                    });
+                }
                 return null;
             }
         }
 
-        private async Task<BeatSaverMap> TryFetchBeatSaverMap(LiveSongCommand song, CancellationToken cancellationToken) {
+        private Task<BeatSaverMap> TryFetchBeatSaverMap(LiveSongCommand song, CancellationToken cancellationToken) {
+            return TryFetchBeatSaverMap(song, cancellationToken, null);
+        }
+
+        private async Task<BeatSaverMap> TryFetchBeatSaverMap(LiveSongCommand song, CancellationToken cancellationToken, Func<bool> isCurrent) {
             try {
+                if (isCurrent != null && !SongPreparationIsCurrent(cancellationToken, isCurrent)) return null;
                 return await _beatSaver.GetMapByHash(SongHash(song), cancellationToken);
             } catch (OperationCanceledException) {
                 throw;
             } catch (Exception ex) {
-                Plugin.Log.Warn($"Unable to fetch BeatSaver live song details: {ex.Message}");
+                if (isCurrent == null) {
+                    Plugin.Log.Warn($"Unable to fetch BeatSaver live song details: {ex.Message}");
+                } else {
+                    await OnSongOwner(() => {
+                        if (isCurrent()) Plugin.Log.Warn($"Unable to fetch BeatSaver live song details: {ex.Message}");
+                        return true;
+                    });
+                }
                 return null;
             }
         }
@@ -133,6 +197,12 @@ namespace ScoreSaber.Features.Live.Compete.Services {
         private LiveSongDetails BuildBeatSaverSongDetails(LiveSongCommand song, BeatSaverMap map, BeatSaverVersion version) {
             string hash = SongHash(song);
             BeatSaverDifficulty diff = _beatSaver.SelectDifficulty(version, song?.Difficulty);
+            return BuildBeatSaverSongDetailsCore(song, map, version, diff, hash);
+        }
+
+        private static LiveSongDetails BuildBeatSaverSongDetailsCore(LiveSongCommand song, BeatSaverMap map, BeatSaverVersion version,
+            BeatSaverDifficulty diff, string hash = null) {
+            hash = hash ?? SongHash(song);
             BeatSaverMapMetadata metadata = map?.Metadata;
 
             string name = DisplaySongName(metadata?.SongName, metadata?.SongSubName);

@@ -39,6 +39,13 @@ namespace ScoreSaber.Core.Configuration {
         public bool lockedReplayUIMode { get; set; }
         public List<SpectatorPoseRoot> spectatorPositions { get; set; }
 
+        internal Settings CreateSaveSnapshot() {
+            var snapshot = (Settings)MemberwiseClone();
+            List<SpectatorPoseRoot> positions = spectatorPositions;
+            snapshot.spectatorPositions = positions == null ? null : new List<SpectatorPoseRoot>(positions);
+            return snapshot;
+        }
+
         public void SetDefaults() {
 
             disableScoreSaber = false;

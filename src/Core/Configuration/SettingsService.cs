@@ -1,10 +1,17 @@
 using Newtonsoft.Json;
 using System;
 using System.IO;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ScoreSaber.Core.Configuration {
     internal class SettingsService {
         private const int CurrentVersion = 12;
+        private static readonly object SaveQueueLock = new object();
+        private static Task _saveTail = Task.CompletedTask;
 
         internal string DataPath => "UserData";
         internal string ConfigPath => DataPath + @"\ScoreSaber";
@@ -36,18 +43,78 @@ namespace ScoreSaber.Core.Configuration {
 
         internal void Save() {
             try {
-                EnsureDirectories();
+                EnsureSaveDirectories();
                 Current.fileVersion = CurrentVersion;
 
                 var serializerSettings = new JsonSerializerSettings {
                     ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
                     Formatting = Formatting.Indented
                 };
-                string serialized = JsonConvert.SerializeObject(Current, serializerSettings);
-                File.WriteAllText(SettingsPath, serialized);
+                Settings current = Current;
+                if (JsonConvert.DefaultSettings == null && current.GetType() == typeof(Settings) &&
+                    (current.spectatorPositions == null || current.spectatorPositions.GetType() == typeof(List<Settings.SpectatorPoseRoot>))) {
+                    Settings snapshot = current.CreateSaveSnapshot();
+                    JsonSerializer serializer = JsonSerializer.Create(serializerSettings);
+                    string path = Path.GetFullPath(SettingsPath);
+                    RunSaveWork(() => File.WriteAllText(path, SerializeOwned(snapshot, serializer)));
+                } else {
+                    string serialized = JsonConvert.SerializeObject(Current, serializerSettings);
+                    string path = Path.GetFullPath(SettingsPath);
+                    RunSaveWork(() => File.WriteAllText(path, serialized));
+                }
             } catch (Exception ex) {
                 Plugin.Log.Error("Failed to save settings " + ex.ToString());
             }
+        }
+
+        private void EnsureSaveDirectories() {
+            string dataPath = Path.GetFullPath(DataPath);
+            string configPath = Path.GetFullPath(ConfigPath);
+            string replayPath = Path.GetFullPath(ReplayPath);
+            RunSaveWork(() => {
+                Directory.CreateDirectory(dataPath);
+                Directory.CreateDirectory(configPath);
+                Directory.CreateDirectory(replayPath);
+            });
+        }
+
+        private static string SerializeOwned(Settings snapshot, JsonSerializer serializer) {
+            using (var output = new StringWriter(new StringBuilder(256), CultureInfo.InvariantCulture)) {
+                using (var writer = new JsonTextWriter(output)) {
+                    writer.Formatting = serializer.Formatting;
+                    serializer.Serialize(writer, snapshot, null);
+                }
+                return output.ToString();
+            }
+        }
+
+        private static void RunSaveWork(Action work) {
+            Task task;
+            lock (SaveQueueLock) {
+                if (ExecutionContext.IsFlowSuppressed()) {
+                    task = StartSaveWork(work);
+                } else {
+                    using (ExecutionContext.SuppressFlow()) {
+                        task = StartSaveWork(work);
+                    }
+                }
+            }
+            task.GetAwaiter().GetResult();
+        }
+
+        private static Task StartSaveWork(Action work) {
+            Task task = _saveTail.ContinueWith(
+                static (_, state) => ((Action)state)(), work,
+                CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            _saveTail = task;
+            _ = task.ContinueWith(static completed => {
+                lock (SaveQueueLock) {
+                    if (ReferenceEquals(_saveTail, completed)) {
+                        _saveTail = Task.CompletedTask;
+                    }
+                }
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            return task;
         }
 
         internal string ReplayPathFor(string playerId, string songHash, BeatmapKey beatmapKey) => $@"{ReplayPath}\{playerId}-{songHash}-{beatmapKey.difficulty.SerializedName()}-{beatmapKey.CharacteristicSerializedName()}.dat";

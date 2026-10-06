@@ -73,6 +73,13 @@ namespace ScoreSaber.Features.Live.Compete.Packets {
         }
 
         public CancellationToken ConnectionCancellationToken => _connectionCancellationToken();
+        private Func<long> _songRoomGeneration;
+        private long _songRequestVersion;
+        internal bool CanPrepareOwnedSongDetails => _songRoomGeneration != null;
+        internal long SongRoomGeneration => _songRoomGeneration();
+        internal long BeginSongRequest() => System.Threading.Interlocked.Increment(ref _songRequestVersion);
+        internal bool IsSongRequestCurrent(long version) => version == System.Threading.Volatile.Read(ref _songRequestVersion);
+        internal void EnableOwnedSongDetailsPreparation(Func<long> roomGeneration) => _songRoomGeneration = roomGeneration;
         internal bool CanPrepareOwnedRoomDetails { get; private set; }
         internal void EnableOwnedRoomDetailsPreparation() => CanPrepareOwnedRoomDetails = true;
         public CompeteSongService SongService { get; }

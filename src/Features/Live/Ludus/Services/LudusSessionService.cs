@@ -58,6 +58,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
         private readonly LudusPacketDispatcher<ILudusSessionPacketContext> _packetDispatcher;
 
         private CompeteRoom _tournamentRoom;
+        private long _songRoomGeneration;
         private CompeteRoom _pendingTournamentRoom;
         private TaskCompletionSource<CompeteRoom> _pendingTournamentJoin;
         private string _pendingTournamentJoinRoomId;
@@ -106,7 +107,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             var commandSession = new CompeteLudusCommandSession(
                 () => LocalPlayerId,
                 () => _tournamentRoom,
-                room => _tournamentRoom = room,
+                room => SetTournamentRoom(room),
                 () => _transport.Token,
                 songService,
                 directoryService,
@@ -127,6 +128,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                 _mapStartCountdown.TryCancel,
                 _mapStartCountdown.Complete);
             commandSession.EnableOwnedRoomDetailsPreparation();
+            commandSession.EnableOwnedSongDetailsPreparation(() => _songRoomGeneration);
             _commandSession = commandSession;
             _chatMessages = new LudusChatMessageBuffer();
             _packetContext = new LudusSessionPacketContext(
@@ -201,12 +203,21 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             Disconnect();
         }
 
+        private void SetTournamentRoom(CompeteRoom room, bool newLifetime = false) {
+            if (newLifetime || room == null || _tournamentRoom == null ||
+                room.Id != _tournamentRoom.Id || room.TournamentId != _tournamentRoom.TournamentId ||
+                !ReferenceEquals(room.Song, _tournamentRoom.Song)) {
+                _songRoomGeneration++;
+            }
+            _tournamentRoom = room;
+        }
+
         internal async Task ConnectAndJoin(CompeteRoom room, CancellationToken cancellationToken) {
             if (room == null) {
                 throw new ArgumentNullException(nameof(room));
             }
 
-            _tournamentRoom = room;
+            SetTournamentRoom(room, true);
             _pendingTournamentRoom = room;
             Task<CompeteRoom> pendingJoin = BeginPendingTournamentJoin(room);
             bool joined = false;
@@ -246,7 +257,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             _nextReconnectAt = 0f;
             _reconnectAttempt = 0;
             _pendingTournamentRoom = null;
-            _tournamentRoom = null;
+            SetTournamentRoom(null);
             _nextLudusUrl = null;
             _connectionId = null;
             _clientType = LudusClientType.LudusClientTypePlayer;
@@ -266,9 +277,10 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
         }
 
         internal void ReturnToPublicPresence() {
+            _songRoomGeneration++;
             _mapStartCountdown.Cancel();
             _pendingTournamentRoom = null;
-            _tournamentRoom = null;
+            SetTournamentRoom(null);
             UpdateViewerList(null);
             _nextLudusUrl = null;
 
@@ -299,7 +311,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             }
 
             _pendingTournamentRoom = null;
-            _tournamentRoom = room;
+            SetTournamentRoom(room, true);
             RequestClientType(LudusClientType.LudusClientTypePlayer);
             ApplyRoomContext(LudusRoomContextType.LudusRoomContextTypeTournament, room.TournamentId, room.Id);
             ChatMessagesChanged?.Invoke(CurrentChatMessages);
@@ -358,7 +370,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             }
 
             if (RoomMatches(_tournamentRoom, room) && _roomContext != LudusRoomContextType.LudusRoomContextTypeTournament) {
-                _tournamentRoom = null;
+                SetTournamentRoom(null);
             }
         }
 
@@ -435,7 +447,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                 return false;
             }
 
-            _tournamentRoom = _tournamentRoom.WithSong(song);
+            SetTournamentRoom(_tournamentRoom.WithSong(song));
             RoomUpdated?.Invoke(_tournamentRoom);
             return true;
         }

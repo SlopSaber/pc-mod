@@ -10,8 +10,10 @@ using ScoreSaber.Features.Live.Ludus.Services;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -68,6 +70,15 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
         private Coroutine _statusClearCoroutine;
         private TMP_FontAsset _chatFont;
         private TextMeshProUGUI _messageMeasurementText;
+        private bool _useOwnedMessages;
+        private bool _presentationRetired;
+        private long _messageVersion;
+        private long _preparationVersion = -1;
+        private long _preparationCacheVersion;
+        private CultureInfo _preparationCulture;
+        private TimeZoneInfo _preparationTimeZone;
+        private Task<LiveChatLinkService.OwnedPresentationResult> _preparation;
+        private RenderContext _renderContext;
 
         [UIParams]
         private readonly BSMLParserParams _parserParams = null;
@@ -112,6 +123,7 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
         }
 
         protected override void OnDestroy() {
+            RetireOwnedPresentation();
             if (_linkService != null) {
                 _linkService.StatusChanged -= SetStatus;
                 _linkService.ResolvedTextChanged -= RebuildMessages;
@@ -120,6 +132,8 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
         }
 
         internal void SetMessages(IReadOnlyList<LiveChatEntry> messages) {
+            _useOwnedMessages = false;
+            _messageVersion++;
             _currentMessages = messages?.ToArray() ?? Array.Empty<LiveChatEntry>();
             RebuildMessages();
         }
@@ -146,11 +160,115 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
         }
 
         private void RebuildMessages() {
+            if (_useOwnedMessages) {
+                _messageVersion++;
+                StartOwnedPreparation();
+                return;
+            }
+
+            RebuildImmediateMessages();
+        }
+
+        private void RebuildImmediateMessages() {
             _visibleRows = _currentMessages
                 .Skip(System.Math.Max(0, _currentMessages.Count - VisibleMessageCount))
                 .Select(entry => new LiveChatFloatingRow(entry, _linkService.FirstLink(entry.Text), _linkService.DisplaySenderName(entry), _linkService.DisplayText(entry)))
                 .ToArray();
 
+            RenderMessageRows();
+        }
+
+        internal void SetOwnedMessages(IReadOnlyList<LiveChatEntry> messages) {
+            if (_presentationRetired) {
+                return;
+            }
+
+            _currentMessages = messages?.ToArray() ?? Array.Empty<LiveChatEntry>();
+            _useOwnedMessages = true;
+            RebuildMessages();
+        }
+
+        internal void RetireOwnedPresentation() {
+            _presentationRetired = true;
+            _messageVersion++;
+        }
+
+        private void StartOwnedPreparation() {
+            if (!_useOwnedMessages || _presentationRetired || _preparation != null || _preparationVersion == _messageVersion) {
+                return;
+            }
+
+            _preparationVersion = _messageVersion;
+            CultureInfo culture = CultureInfo.CurrentCulture;
+            LiveChatEntry[] entries = _currentMessages.Skip(Math.Max(0, _currentMessages.Count - VisibleMessageCount)).ToArray();
+            if (culture.GetType() != typeof(CultureInfo) || !culture.IsReadOnly
+                || entries.Any(entry => entry == null || entry.CreatedAtUnixMs > 253402300799999L)) {
+                RebuildImmediateMessages();
+                return;
+            }
+
+            _preparationCulture = culture;
+            _preparationTimeZone = TimeZoneInfo.Local;
+            _preparationCacheVersion = _linkService.TextCacheVersion;
+            _preparation = _linkService.PrepareOwnedPresentation(entries, culture, _preparationTimeZone);
+            _ = _preparation.ContinueWith(failed => { _ = failed.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+
+        private bool PreparationIsCurrent(long version, long cacheVersion, CultureInfo culture, TimeZoneInfo timeZone) => _useOwnedMessages && !_presentationRetired
+            && version == _messageVersion && cacheVersion == _linkService.TextCacheVersion
+            && ReferenceEquals(culture, CultureInfo.CurrentCulture)
+            && ReferenceEquals(timeZone, TimeZoneInfo.Local);
+
+        internal void FlushOwnedPresentation() {
+            if (_preparation == null || !_preparation.IsCompleted) {
+                StartOwnedPreparation();
+                return;
+            }
+
+            Task<LiveChatLinkService.OwnedPresentationResult> completed = _preparation;
+            long version = _preparationVersion;
+            long cacheVersion = _preparationCacheVersion;
+            CultureInfo culture = _preparationCulture;
+            TimeZoneInfo timeZone = _preparationTimeZone;
+            _preparation = null;
+            LiveChatLinkService.OwnedPresentationResult result;
+            try {
+                result = completed.GetAwaiter().GetResult();
+            } catch (Exception ex) {
+                if (PreparationIsCurrent(version, cacheVersion, culture, timeZone)) {
+                    Plugin.Log.Warn($"Failed to prepare live chat: {ex.Message}");
+                }
+                StartOwnedPreparation();
+                return;
+            }
+
+            if (!PreparationIsCurrent(version, cacheVersion, culture, timeZone)) {
+                if (version == _messageVersion) {
+                    _messageVersion++;
+                }
+                StartOwnedPreparation();
+                return;
+            }
+
+            foreach (LiveChatLinkService.ResolutionRequest request in result.Resolutions) {
+                if (!PreparationIsCurrent(version, cacheVersion, culture, timeZone)) {
+                    StartOwnedPreparation();
+                    return;
+                }
+                _linkService.AdmitResolution(request);
+                if (!PreparationIsCurrent(version, cacheVersion, culture, timeZone)) {
+                    StartOwnedPreparation();
+                    return;
+                }
+            }
+
+            if (result.Error != null) {
+                Plugin.Log.Warn($"Failed to prepare live chat: {result.Error.Message}");
+                return;
+            }
+
+            _visibleRows = result.Rows;
             RenderMessageRows();
         }
 
@@ -339,35 +457,100 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
 
         private bool HasStatusLine => !string.IsNullOrWhiteSpace(status) && status != DefaultStatus;
 
+        private sealed class RenderContext {
+            internal RenderContext(long messageVersion, long cacheVersion) {
+                MessageVersion = messageVersion;
+                CacheVersion = cacheVersion;
+            }
+            internal long MessageVersion { get; }
+            internal long CacheVersion { get; }
+            internal List<GameObject> UncommittedObjects { get; } = new List<GameObject>();
+        }
+
+        private sealed class StalePresentationException : Exception { }
+
+        private bool RenderIsCurrent(RenderContext context) => context == null
+            || (!_presentationRetired && ReferenceEquals(_renderContext, context)
+                && context.MessageVersion == _messageVersion
+                && context.CacheVersion == (_linkService?.TextCacheVersion ?? 0));
+
+        private void CheckRender(RenderContext context) {
+            if (!RenderIsCurrent(context)) {
+                throw new StalePresentationException();
+            }
+        }
+
+        private GameObject CreatePresentationObject(string name, RenderContext context, bool track = false) {
+            CheckRender(context);
+            GameObject created = new GameObject(name, typeof(RectTransform));
+            if (!RenderIsCurrent(context)) {
+                Destroy(created);
+                throw new StalePresentationException();
+            }
+            if (track) {
+                _messageObjects.Add(created);
+            } else {
+                context?.UncommittedObjects.Add(created);
+            }
+            return created;
+        }
+
         private void RenderMessageRows() {
-            if (transform == null) {
+            if (_presentationRetired) {
                 return;
             }
-
-            EnsureChatButton();
-            ClearMessageObjects();
-            AddViewerStatusLine();
-            AddStatusLine();
-
-            if (_visibleRows.Length == 0) {
-                return;
-            }
-
-            float y = HasStatusLine ? FooterWithStatusReserve : FooterReserve;
-            for (int i = _visibleRows.Length - 1; i >= 0; i--) {
-                float rowHeight = RowHeightFor(_visibleRows[i]);
-                if (y + rowHeight > ChatHeight - TopPadding) {
-                    break;
+            var context = new RenderContext(_messageVersion, _linkService?.TextCacheVersion ?? 0);
+            _renderContext = context;
+            CheckRender(context);
+            LiveChatFloatingRow[] rows = _visibleRows;
+            CheckRender(context);
+            try {
+                if (_presentationRetired || transform == null) {
+                    return;
+                }
+                EnsureChatButton();
+                CheckRender(context);
+                ClearMessageObjects();
+                CheckRender(context);
+                AddViewerStatusLine();
+                CheckRender(context);
+                AddStatusLine();
+                CheckRender(context);
+                if (rows.Length == 0) {
+                    return;
+                }
+                float y = HasStatusLine ? FooterWithStatusReserve : FooterReserve;
+                CheckRender(context);
+                for (int i = rows.Length - 1; i >= 0; i--) {
+                    float rowHeight = RowHeightFor(rows[i]);
+                    CheckRender(context);
+                    if (y + rowHeight > ChatHeight - TopPadding) {
+                        break;
+                    }
+                    AddMessageRow(rows[i], y, rowHeight);
+                    CheckRender(context);
+                    y += rowHeight;
+                    CheckRender(context);
                 }
 
-                AddMessageRow(_visibleRows[i], y, rowHeight);
-                y += rowHeight;
+            } catch (StalePresentationException) {
+            } finally {
+                if (ReferenceEquals(_renderContext, context)) {
+                    _renderContext = null;
+                }
+                foreach (GameObject unfinished in context.UncommittedObjects) {
+                    Destroy(unfinished);
+                }
             }
         }
 
         private float RowHeightFor(LiveChatFloatingRow row) {
+            RenderContext context = _renderContext;
+            CheckRender(context);
             float minimumHeight = MessageRowMinHeight * CurrentTextScale;
+            CheckRender(context);
             float measuredHeight = MeasureMessageTextHeight(row.DisplayText) + MessageTextVerticalPadding;
+            CheckRender(context);
             if (measuredHeight < minimumHeight) {
                 return minimumHeight;
             }
@@ -376,33 +559,56 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
         }
 
         private void EnsureChatButton() {
+            RenderContext context = _renderContext;
+            CheckRender(context);
             if (_chatButtonObject != null || transform == null) {
                 return;
             }
 
-            _chatButtonObject = new GameObject("Live Chat Open Button", typeof(RectTransform));
-            _chatButtonObject.transform.SetParent(transform, false);
-            _chatButtonObject.transform.SetAsLastSibling();
+            GameObject root = CreatePresentationObject("Live Chat Open Button", context);
+            CheckRender(context);
+            root.transform.SetParent(transform, false);
+            CheckRender(context);
+            root.transform.SetAsLastSibling();
+            CheckRender(context);
 
-            RectTransform rectTransform = _chatButtonObject.transform as RectTransform;
+            RectTransform rectTransform = root.transform as RectTransform;
+            CheckRender(context);
             rectTransform.anchorMin = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.anchorMax = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.pivot = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.sizeDelta = new Vector2(45f, 7.5f);
+            CheckRender(context);
             rectTransform.anchoredPosition = new Vector2((ChatWidth * 0.5f) - 24.5f, 1.5f);
+            CheckRender(context);
             rectTransform.localScale = Vector3.one;
+            CheckRender(context);
 
-            Image background = _chatButtonObject.AddComponent<Image>();
+            Image background = root.AddComponent<Image>();
+            CheckRender(context);
             background.color = new Color(0f, 0f, 0f, 0.22f);
+            CheckRender(context);
             background.raycastTarget = true;
+            CheckRender(context);
             ApplyNoGlow(background);
+            CheckRender(context);
 
-            Button button = _chatButtonObject.AddComponent<Button>();
+            Button button = root.AddComponent<Button>();
+            CheckRender(context);
             button.transition = Selectable.Transition.None;
+            CheckRender(context);
             button.targetGraphic = background;
+            CheckRender(context);
             button.onClick.AddListener(OpenKeyboard);
+            CheckRender(context);
 
-            AddText(_chatButtonObject.transform, "Send Message", new Color(0.8f, 0.92f, 1f, 0.92f), 2.45f * CurrentTextScale, new Vector2(0f, -0.65f), new Vector2(45f, 7.5f), TextAlignmentOptions.Center);
+            AddText(root.transform, "Send Message", new Color(0.8f, 0.92f, 1f, 0.92f), 2.45f * CurrentTextScale, new Vector2(0f, -0.65f), new Vector2(45f, 7.5f), TextAlignmentOptions.Center);
+            CheckRender(context);
+            context?.UncommittedObjects.Remove(root);
+            _chatButtonObject = root;
         }
 
         private void OpenKeyboard() {
@@ -534,130 +740,213 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
         }
 
         private void ClearMessageObjects() {
-            for (int i = _messageObjects.Count - 1; i >= 0; i--) {
-                if (_messageObjects[i] != null) {
-                    Destroy(_messageObjects[i]);
+            RenderContext context = _renderContext;
+            CheckRender(context);
+            GameObject[] retired = _messageObjects.ToArray();
+            _messageObjects.Clear();
+            for (int i = retired.Length - 1; i >= 0; i--) {
+                if (retired[i] != null) {
+                    Destroy(retired[i]);
                 }
             }
-
-            _messageObjects.Clear();
+            CheckRender(context);
         }
 
         private void AddViewerStatusLine() {
+            RenderContext context = _renderContext;
+            CheckRender(context);
             if (string.IsNullOrWhiteSpace(_viewerStatus)) {
                 return;
             }
 
-            GameObject root = new GameObject("Live Chat Viewer Count", typeof(RectTransform));
+            GameObject root = CreatePresentationObject("Live Chat Viewer Count", context, true);
+            CheckRender(context);
             root.transform.SetParent(transform, false);
-            _messageObjects.Add(root);
+            CheckRender(context);
 
             RectTransform rectTransform = root.transform as RectTransform;
+            CheckRender(context);
             rectTransform.anchorMin = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.anchorMax = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.pivot = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.sizeDelta = new Vector2(48f, 7.5f);
+            CheckRender(context);
             rectTransform.anchoredPosition = new Vector2(-35f, 1.5f);
+            CheckRender(context);
             rectTransform.localScale = Vector3.one;
+            CheckRender(context);
 
             Image background = root.AddComponent<Image>();
+            CheckRender(context);
             background.color = new Color(0f, 0f, 0f, 0.12f);
+            CheckRender(context);
             background.raycastTarget = false;
+            CheckRender(context);
             ApplyNoGlow(background);
+            CheckRender(context);
 
             AddAccent(root.transform, ChatAccent, 7.5f);
+            CheckRender(context);
             AddText(root.transform, _viewerStatus, new Color(0.92f, 0.94f, 0.98f, 0.82f), 2.15f * CurrentTextScale, new Vector2(3f, -0.6f), new Vector2(43f, 7.2f), TextAlignmentOptions.Left);
+            CheckRender(context);
         }
 
         private void AddStatusLine() {
+            RenderContext context = _renderContext;
+            CheckRender(context);
             if (!HasStatusLine) {
                 return;
             }
 
-            GameObject root = new GameObject("Live Chat Status", typeof(RectTransform));
+            GameObject root = CreatePresentationObject("Live Chat Status", context, true);
+            CheckRender(context);
             root.transform.SetParent(transform, false);
-            _messageObjects.Add(root);
+            CheckRender(context);
 
             RectTransform rectTransform = root.transform as RectTransform;
+            CheckRender(context);
             rectTransform.anchorMin = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.anchorMax = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.pivot = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.sizeDelta = new Vector2(ChatWidth - 9f, 7.5f);
+            CheckRender(context);
             rectTransform.anchoredPosition = new Vector2(0f, 9.5f);
+            CheckRender(context);
             rectTransform.localScale = Vector3.one;
+            CheckRender(context);
 
             Image background = root.AddComponent<Image>();
+            CheckRender(context);
             background.color = new Color(0f, 0f, 0f, 0.22f);
+            CheckRender(context);
             background.raycastTarget = false;
+            CheckRender(context);
             ApplyNoGlow(background);
+            CheckRender(context);
 
             AddAccent(root.transform, ChatAccent, 7.5f);
+            CheckRender(context);
             AddText(root.transform, status, new Color(0.92f, 0.94f, 0.98f, 0.95f), 2.3f * CurrentTextScale, new Vector2(3f, -0.6f), new Vector2(ChatWidth - 15f, 7.2f), TextAlignmentOptions.Left);
+            CheckRender(context);
         }
 
         private void AddMessageRow(LiveChatFloatingRow row, float y, float height) {
-            GameObject root = new GameObject("Live Chat Message", typeof(RectTransform));
+            RenderContext context = _renderContext;
+            CheckRender(context);
+            GameObject root = CreatePresentationObject("Live Chat Message", context, true);
+            CheckRender(context);
             root.transform.SetParent(transform, false);
-            _messageObjects.Add(root);
+            CheckRender(context);
 
             RectTransform rectTransform = root.transform as RectTransform;
+            CheckRender(context);
             rectTransform.anchorMin = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.anchorMax = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.pivot = new Vector2(0.5f, 0f);
+            CheckRender(context);
             rectTransform.sizeDelta = new Vector2(ChatWidth, height);
+            CheckRender(context);
             rectTransform.anchoredPosition = new Vector2(0f, y);
+            CheckRender(context);
             rectTransform.localScale = Vector3.one;
+            CheckRender(context);
 
             Image background = root.AddComponent<Image>();
+            CheckRender(context);
             background.color = row.HasAccent ? ChatHighlight : ChatBackground;
+            CheckRender(context);
             background.raycastTarget = row.LinkTarget != null;
+            CheckRender(context);
             ApplyNoGlow(background);
+            CheckRender(context);
 
             if (row.LinkTarget != null) {
                 Button button = root.AddComponent<Button>();
+                CheckRender(context);
                 button.transition = Selectable.Transition.None;
+                CheckRender(context);
                 button.targetGraphic = background;
+                CheckRender(context);
                 LiveChatLinkTarget target = row.LinkTarget;
+                CheckRender(context);
                 button.onClick.AddListener(() => OpenLink(target));
+                CheckRender(context);
             }
 
             if (row.HasAccent) {
                 AddAccent(root.transform, row.LinkTarget == null ? ChatAccent : LinkAccent, height);
+                CheckRender(context);
             }
 
             Vector2 textPosition = new Vector2(6f, -1f);
+            CheckRender(context);
             Vector2 textSize = new Vector2(MessageTextWidth, height - MessageTextVerticalPadding);
+            CheckRender(context);
             AddText(root.transform, row.DisplayText, MessageColor, MessageTextFontSize * CurrentTextScale, textPosition, textSize, TextAlignmentOptions.TopLeft, true);
+            CheckRender(context);
         }
 
         private void AddAccent(Transform parent, Color color, float height) {
-            GameObject accent = new GameObject("Accent", typeof(RectTransform));
+            RenderContext context = _renderContext;
+            CheckRender(context);
+            GameObject accent = CreatePresentationObject("Accent", context);
+            CheckRender(context);
             accent.transform.SetParent(parent, false);
+            CheckRender(context);
             Image image = accent.AddComponent<Image>();
+            CheckRender(context);
             image.color = color;
+            CheckRender(context);
             image.raycastTarget = false;
+            CheckRender(context);
             ApplyNoGlow(image);
+            CheckRender(context);
 
             RectTransform rect = accent.transform as RectTransform;
+            CheckRender(context);
             rect.anchorMin = new Vector2(0f, 0f);
+            CheckRender(context);
             rect.anchorMax = new Vector2(0f, 0f);
+            CheckRender(context);
             rect.pivot = new Vector2(0f, 0f);
+            CheckRender(context);
             rect.sizeDelta = new Vector2(1f, height);
+            CheckRender(context);
             rect.anchoredPosition = Vector2.zero;
+            CheckRender(context);
             rect.localScale = Vector3.one;
+            CheckRender(context);
+
+            context?.UncommittedObjects.Remove(accent);
         }
 
         private float MeasureMessageTextHeight(string value) {
+            RenderContext context = _renderContext;
+            CheckRender(context);
             TextMeshProUGUI text = MessageMeasurementText;
+            CheckRender(context);
             if (text == null) {
                 return MessageRowMinHeight * CurrentTextScale;
             }
 
             ConfigureText(text, Color.clear, MessageTextFontSize * CurrentTextScale, TextAlignmentOptions.TopLeft, true);
+            CheckRender(context);
             text.text = value ?? string.Empty;
+            CheckRender(context);
             text.rectTransform.sizeDelta = new Vector2(MessageTextWidth, ChatHeight);
+            CheckRender(context);
             Vector2 preferredValues = text.GetPreferredValues(text.text, MessageTextWidth, float.PositiveInfinity);
+            CheckRender(context);
             text.text = string.Empty;
+            CheckRender(context);
 
             if (float.IsNaN(preferredValues.y) || float.IsInfinity(preferredValues.y) || preferredValues.y <= 0f) {
                 return MessageRowMinHeight * CurrentTextScale;
@@ -668,6 +957,8 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
 
         private TextMeshProUGUI MessageMeasurementText {
             get {
+                RenderContext context = _renderContext;
+                CheckRender(context);
                 if (_messageMeasurementText != null) {
                     return _messageMeasurementText;
                 }
@@ -676,73 +967,143 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
                     return null;
                 }
 
-                GameObject textObject = new GameObject("Live Chat Message Measurement", typeof(RectTransform));
+                GameObject textObject = CreatePresentationObject("Live Chat Message Measurement", context);
+                CheckRender(context);
                 textObject.transform.SetParent(transform, false);
-                _messageMeasurementText = textObject.AddComponent<TextMeshProUGUI>();
+                CheckRender(context);
+                TextMeshProUGUI measurement = textObject.AddComponent<TextMeshProUGUI>();
+                CheckRender(context);
 
-                RectTransform rect = _messageMeasurementText.rectTransform;
+                RectTransform rect = measurement.rectTransform;
+                CheckRender(context);
                 rect.anchorMin = new Vector2(0f, 1f);
+                CheckRender(context);
                 rect.anchorMax = new Vector2(0f, 1f);
+                CheckRender(context);
                 rect.pivot = new Vector2(0f, 1f);
+                CheckRender(context);
                 rect.anchoredPosition = Vector2.zero;
+                CheckRender(context);
                 rect.sizeDelta = new Vector2(MessageTextWidth, ChatHeight);
+                CheckRender(context);
                 rect.localScale = Vector3.one;
+                CheckRender(context);
 
-                return _messageMeasurementText;
+                context?.UncommittedObjects.Remove(textObject);
+                _messageMeasurementText = measurement;
+                return measurement;
             }
         }
 
         private TextMeshProUGUI AddText(Transform parent, string value, Color color, float fontSize, Vector2 anchoredPosition, Vector2 sizeDelta, TextAlignmentOptions alignment, bool wordWrapping = false) {
-            GameObject textObject = new GameObject("Text", typeof(RectTransform));
+            RenderContext context = _renderContext;
+            CheckRender(context);
+            GameObject textObject = CreatePresentationObject("Text", context);
+            CheckRender(context);
             textObject.transform.SetParent(parent, false);
+            CheckRender(context);
 
             TextMeshProUGUI text = textObject.AddComponent<TextMeshProUGUI>();
+            CheckRender(context);
             ConfigureText(text, color, fontSize, alignment, wordWrapping);
+            CheckRender(context);
             text.text = value ?? string.Empty;
+            CheckRender(context);
 
             RectTransform rect = text.rectTransform;
+            CheckRender(context);
             rect.anchorMin = new Vector2(0f, 1f);
+            CheckRender(context);
             rect.anchorMax = new Vector2(0f, 1f);
+            CheckRender(context);
             rect.pivot = new Vector2(0f, 1f);
+            CheckRender(context);
             rect.anchoredPosition = anchoredPosition;
+            CheckRender(context);
             rect.sizeDelta = sizeDelta;
+            CheckRender(context);
+            context?.UncommittedObjects.Remove(textObject);
             return text;
         }
 
         private void ConfigureText(TextMeshProUGUI text, Color color, float fontSize, TextAlignmentOptions alignment, bool wordWrapping) {
+            RenderContext context = _renderContext;
+            CheckRender(context);
             text.font = ChatFont;
+            CheckRender(context);
             text.richText = true;
+            CheckRender(context);
             text.SetWordWrapping(wordWrapping);
+            CheckRender(context);
             text.overflowMode = TextOverflowModes.Ellipsis;
+            CheckRender(context);
             text.alignment = alignment;
+            CheckRender(context);
             text.color = color;
+            CheckRender(context);
             text.fontSize = fontSize;
+            CheckRender(context);
             text.lineSpacing = TextLineSpacing;
+            CheckRender(context);
             text.raycastTarget = false;
+            CheckRender(context);
         }
 
-        private static void ApplyNoGlow(Image image) {
-            if (image == null || Utilities.ImageResources.NoGlowMat == null) {
+        private void ApplyNoGlow(Image image) {
+            RenderContext context = _renderContext;
+            CheckRender(context);
+            if (image == null) {
+                return;
+            }
+            Material material = Utilities.ImageResources.NoGlowMat;
+            CheckRender(context);
+            if (material == null) {
                 return;
             }
 
-            image.material = Utilities.ImageResources.NoGlowMat;
+            image.material = material;
+            CheckRender(context);
         }
 
         private TMP_FontAsset ChatFont {
             get {
+                RenderContext context = _renderContext;
+                CheckRender(context);
                 if (_chatFont != null) {
                     return _chatFont;
                 }
 
-                _chatFont = Resources.FindObjectsOfTypeAll<TMP_FontAsset>().FirstOrDefault(font => font.name == "Teko-Medium SDF No Glow")
-                    ?? Resources.FindObjectsOfTypeAll<TMP_FontAsset>().FirstOrDefault(font => font.name == "Teko-Medium SDF")
-                    ?? Resources.FindObjectsOfTypeAll<TMP_FontAsset>().FirstOrDefault();
-                return _chatFont;
+                TMP_FontAsset font = FindChatFont("Teko-Medium SDF No Glow", context)
+                    ?? FindChatFont("Teko-Medium SDF", context);
+                if (ReferenceEquals(font, null)) {
+                    TMP_FontAsset[] fonts = Resources.FindObjectsOfTypeAll<TMP_FontAsset>();
+                    CheckRender(context);
+                    font = fonts.FirstOrDefault();
+                }
+                _chatFont = font;
+                return font;
             }
         }
 
-        private sealed class LiveChatFloatingRow {
+        private TMP_FontAsset FindChatFont(string name, RenderContext context) {
+            CheckRender(context);
+            TMP_FontAsset[] fonts = Resources.FindObjectsOfTypeAll<TMP_FontAsset>();
+            CheckRender(context);
+            foreach (TMP_FontAsset font in fonts) {
+                string fontName = font.name;
+                CheckRender(context);
+                if (fontName == name) {
+                    return font;
+                }
+            }
+            return null;
+        }
+
+        internal static LiveChatFloatingRow PrepareOwnedRow(LiveChatEntry entry, LiveChatLinkTarget target, string sender, string text, string time) {
+            return new LiveChatFloatingRow(entry.IsChat ? FirstNonEmpty(sender, "Unknown") : "Log", Truncate(text, 180), time, entry.IsChat, target);
+        }
+
+        internal sealed class LiveChatFloatingRow {
             internal LiveChatFloatingRow(LiveChatEntry entry, LiveChatLinkTarget linkTarget, string senderName, string text) {
                 string title = entry.IsChat ? FirstNonEmpty(senderName, "Unknown") : "Log";
                 string detail = Truncate(text, 180);

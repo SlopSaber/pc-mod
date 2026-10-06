@@ -7,8 +7,11 @@ using ScoreSaber.Features.Live.Compete.Domain;
 using ScoreSaber.Features.Live.Compete.Services;
 using ScoreSaber.Features.Players.Domain;
 using ScoreSaber.Live.V1;
+using ScoreSaber.Features.Live.Ludus.UI;
+using ScoreSaber.Features.Replays;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -51,6 +54,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
         private readonly Dictionary<string, string> _mapNames = new Dictionary<string, string>();
         private readonly HashSet<string> _pendingPlayerNames = new HashSet<string>();
         private readonly HashSet<string> _pendingMapNames = new HashSet<string>();
+        internal long TextCacheVersion { get; private set; }
 
         internal event Action<string> StatusChanged;
         internal event Action ResolvedTextChanged;
@@ -69,7 +73,9 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             _ludusSession = ludusSession;
         }
 
-        internal LiveChatLinkTarget FirstLink(string text) {
+        internal LiveChatLinkTarget FirstLink(string text) => FindFirstLink(text);
+
+        private static LiveChatLinkTarget FindFirstLink(string text) {
             if (string.IsNullOrWhiteSpace(text)) {
                 return null;
             }
@@ -84,7 +90,9 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             return null;
         }
 
-        internal string DisplaySenderName(LiveChatEntry entry) {
+        internal string DisplaySenderName(LiveChatEntry entry) => DisplaySenderName(entry, ResolvedPlayerName);
+
+        private static string DisplaySenderName(LiveChatEntry entry, Func<string, string> playerName) {
             string senderName = CleanDisplayName(entry?.SenderName);
             if (!string.IsNullOrWhiteSpace(senderName) && senderName != "Player") {
                 return senderName;
@@ -94,37 +102,39 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                 return "Unknown";
             }
 
-            return FirstNonEmpty(ResolvedPlayerName(entry.SenderPlayerId), "Loading player");
+            return FirstNonEmpty(playerName(entry.SenderPlayerId), "Loading player");
         }
 
-        internal string DisplayText(LiveChatEntry entry) {
+        internal string DisplayText(LiveChatEntry entry) => DisplayText(entry, ResolvedPlayerName, ResolvedMapName);
+
+        private static string DisplayText(LiveChatEntry entry, Func<string, string> playerName, Func<string, string> mapName) {
             if (entry == null || entry.IsChat) {
                 return entry?.Text ?? string.Empty;
             }
 
             Match playerLog = RawPlayerRoomLogPattern.Match(entry.Text);
             if (playerLog.Success) {
-                string playerName = LogPlayerName(entry, string.Empty, playerLog.Groups[1].Value);
-                return $"{playerName} {playerLog.Groups[2].Value} the room";
+                string name = LogPlayerName(entry, string.Empty, playerLog.Groups[1].Value, playerName);
+                return $"{name} {playerLog.Groups[2].Value} the room";
             }
 
             Match namedPlayerLog = NamedPlayerRoomLogPattern.Match(entry.Text);
             if (namedPlayerLog.Success) {
-                string playerName = LogPlayerName(entry, namedPlayerLog.Groups[1].Value, string.Empty);
-                return $"{playerName} {namedPlayerLog.Groups[2].Value} the room";
+                string name = LogPlayerName(entry, namedPlayerLog.Groups[1].Value, string.Empty, playerName);
+                return $"{name} {namedPlayerLog.Groups[2].Value} the room";
             }
 
             Match mapLog = RawLoadedMapLogPattern.Match(entry.Text);
             if (mapLog.Success) {
                 string hash = mapLog.Groups[1].Value.ToUpperInvariant();
-                string mapName = FirstNonEmpty(ResolvedMapName(hash), "map");
-                return $"Loaded {mapName}{NormalizeLogSuffix(mapLog.Groups[2].Value)}";
+                string name = FirstNonEmpty(mapName(hash), "map");
+                return $"Loaded {name}{NormalizeLogSuffix(mapLog.Groups[2].Value)}";
             }
 
             return StripDisplayMarkup(entry.Text);
         }
 
-        private string LogPlayerName(LiveChatEntry entry, string fallbackName, string fallbackPlayerId) {
+        private static string LogPlayerName(LiveChatEntry entry, string fallbackName, string fallbackPlayerId, Func<string, string> playerName) {
             string senderName = CleanDisplayName(entry?.SenderName);
             if (!string.IsNullOrWhiteSpace(senderName) && senderName != "Ludus" && senderName != "Player") {
                 return senderName;
@@ -132,7 +142,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
 
             string playerId = FirstNonEmpty(fallbackPlayerId, entry?.SenderPlayerId);
             if (!string.IsNullOrWhiteSpace(playerId)) {
-                return FirstNonEmpty(ResolvedPlayerName(playerId), "Loading player");
+                return FirstNonEmpty(playerName(playerId), "Loading player");
             }
 
             string fallback = CleanDisplayName(fallbackName);
@@ -238,6 +248,95 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                 : await SongFromBeatSaverId(map.Bsid, cancellationToken);
         }
 
+        internal Task<OwnedPresentationResult> PrepareOwnedPresentation(LiveChatEntry[] entries, CultureInfo culture, TimeZoneInfo timeZone) {
+            var owned = new OwnedPresentation(entries, new Dictionary<string, string>(_playerNames),
+                new Dictionary<string, string>(_mapNames), CultureInfo.ReadOnly((CultureInfo)culture.Clone()), timeZone);
+            return ReplayStorageService.QueueOwnedPreparation(owned.Prepare);
+        }
+
+        internal void AdmitResolution(ResolutionRequest request) {
+            if (request.IsMap) {
+                QueueMapResolution(request.Key);
+            } else {
+                QueuePlayerResolution(request.Key);
+            }
+        }
+
+        internal sealed class ResolutionRequest {
+            internal ResolutionRequest(string key, bool isMap) {
+                Key = key;
+                IsMap = isMap;
+            }
+
+            internal string Key { get; }
+            internal bool IsMap { get; }
+        }
+
+        internal sealed class OwnedPresentationResult {
+            internal OwnedPresentationResult(LiveChatFloatingViewController.LiveChatFloatingRow[] rows, ResolutionRequest[] resolutions, Exception error = null) {
+                Rows = rows;
+                Resolutions = resolutions;
+                Error = error;
+            }
+
+            internal LiveChatFloatingViewController.LiveChatFloatingRow[] Rows { get; }
+            internal ResolutionRequest[] Resolutions { get; }
+            internal Exception Error { get; }
+        }
+
+        private sealed class OwnedPresentation {
+            private readonly LiveChatEntry[] _entries;
+            private readonly Dictionary<string, string> _players;
+            private readonly Dictionary<string, string> _maps;
+            private readonly CultureInfo _culture;
+            private readonly TimeZoneInfo _timeZone;
+            private readonly List<ResolutionRequest> _resolutions = new List<ResolutionRequest>();
+
+            internal OwnedPresentation(LiveChatEntry[] entries, Dictionary<string, string> players,
+                Dictionary<string, string> maps, CultureInfo culture, TimeZoneInfo timeZone) {
+                _entries = entries;
+                _players = players;
+                _maps = maps;
+                _culture = culture;
+                _timeZone = timeZone;
+            }
+
+            internal OwnedPresentationResult Prepare() {
+                var rows = new LiveChatFloatingViewController.LiveChatFloatingRow[_entries.Length];
+                try {
+                    for (int i = 0; i < _entries.Length; i++) {
+                        LiveChatEntry entry = _entries[i];
+                        LiveChatLinkTarget target = FindFirstLink(entry.Text);
+                        string sender = DisplaySenderName(entry, PlayerName);
+                        string text = DisplayText(entry, PlayerName, MapName);
+                        string time = entry.CreatedAtUnixMs <= 0 ? "--:--"
+                            : TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeMilliseconds(entry.CreatedAtUnixMs), _timeZone).ToString("HH:mm", _culture);
+                        rows[i] = LiveChatFloatingViewController.PrepareOwnedRow(entry, target, sender, text, time);
+                    }
+                } catch (Exception error) {
+                    return new OwnedPresentationResult(null, _resolutions.ToArray(), error);
+                }
+
+                return new OwnedPresentationResult(rows, _resolutions.ToArray());
+            }
+
+            private string PlayerName(string key) => ResolveName(_players, key, false);
+            private string MapName(string key) => ResolveName(_maps, key, true);
+
+            private string ResolveName(Dictionary<string, string> names, string key, bool isMap) {
+                if (string.IsNullOrWhiteSpace(key)) {
+                    return string.Empty;
+                }
+
+                if (names.TryGetValue(key, out string name)) {
+                    return name;
+                }
+
+                _resolutions.Add(new ResolutionRequest(key, isMap));
+                return string.Empty;
+            }
+        }
+
         private string ResolvedPlayerName(string playerId) {
             if (string.IsNullOrWhiteSpace(playerId)) {
                 return string.Empty;
@@ -285,6 +384,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             await UnityMainThreadTaskScheduler.Factory.StartNew(() => {
                 _pendingPlayerNames.Remove(playerId);
                 _playerNames[playerId] = name;
+                TextCacheVersion++;
                 ResolvedTextChanged?.Invoke();
             });
         }
@@ -310,6 +410,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             await UnityMainThreadTaskScheduler.Factory.StartNew(() => {
                 _pendingMapNames.Remove(hash);
                 _mapNames[hash] = name;
+                TextCacheVersion++;
                 ResolvedTextChanged?.Invoke();
             });
         }

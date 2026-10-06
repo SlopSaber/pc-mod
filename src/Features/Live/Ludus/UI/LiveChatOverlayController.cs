@@ -80,9 +80,11 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
             _viewController.RefreshLayoutSettings();
             StoreViewerCount(_ludusSession.CurrentViewerCount);
             FlushViewStateIfVisible();
+            _viewController.FlushOwnedPresentation();
         }
 
         public void Dispose() {
+            _viewController.RetireOwnedPresentation();
             _ludusSession.ChatMessagesChanged -= ChatMessagesChanged;
             _ludusSession.StatusChanged -= StatusChanged;
             _ludusSession.ViewerListUpdated -= ViewerListUpdated;
@@ -148,7 +150,7 @@ namespace ScoreSaber.Features.Live.Ludus.UI {
             }
 
             if (_messagesDirty) {
-                _viewController.SetMessages(_pendingMessages);
+                _viewController.SetOwnedMessages(_pendingMessages);
                 _messagesDirty = false;
             }
             if (_statusDirty) {

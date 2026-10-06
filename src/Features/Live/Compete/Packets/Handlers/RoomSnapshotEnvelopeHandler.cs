@@ -19,10 +19,10 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
         public LudusEnvelopeType Type => LudusEnvelopeType.RoomSnapshot;
 
         public void Handle(ILudusSessionPacketContext session, DecodedLudusEnvelope envelope) {
-            ApplyRoomSnapshot(_commandSession, envelope.Rooms);
+            ApplyRoomSnapshot(_commandSession, envelope.Rooms, envelope.PreparedRooms);
         }
 
-        private static void ApplyRoomSnapshot(ILudusServerCommandSession session, IEnumerable<LiveMatchRoomState> rooms) {
+        private static void ApplyRoomSnapshot(ILudusServerCommandSession session, IEnumerable<LiveMatchRoomState> rooms, OwnedRoomSnapshotPreparation prepared) {
             if (rooms == null) {
                 session.NotifyViewersUpdated(null);
                 return;
@@ -35,11 +35,12 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
                 return;
             }
 
-            Dictionary<string, LiveRoomPlayerState> states = room.PlayerStates
-                .Where(state => !string.IsNullOrEmpty(state.PlayerId))
-                .GroupBy(state => state.PlayerId)
-                .ToDictionary(group => group.Key, group => group.First());
-            HashSet<string> activePlayerIds = ActivePlayerIds(room);
+            Dictionary<string, LiveRoomPlayerState> states;
+            HashSet<string> activePlayerIds;
+            if (prepared == null || !prepared.TryGet(room, out states, out activePlayerIds)) {
+                states = OwnedRoomSnapshotPreparation.GroupStates(room.PlayerStates);
+                activePlayerIds = ActivePlayerIds(room);
+            }
             var players = new List<CompetePlayer>();
             bool localReady = false;
 
@@ -99,20 +100,7 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
         }
 
         private static HashSet<string> ActivePlayerIds(LiveMatchRoomState room) {
-            var playerIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string playerId in room.PlayerIds) {
-                if (!string.IsNullOrEmpty(playerId)) {
-                    playerIds.Add(playerId);
-                }
-            }
-
-            foreach (LiveRoomPlayerState state in room.PlayerStates) {
-                if (!string.IsNullOrEmpty(state.PlayerId)) {
-                    playerIds.Add(state.PlayerId);
-                }
-            }
-
-            return playerIds;
+            return OwnedRoomSnapshotPreparation.BuildActiveIds(room);
         }
 
         private static LiveMatchRoomState FindSessionRoom(ILudusServerCommandSession session, IList<LiveMatchRoomState> rooms) {

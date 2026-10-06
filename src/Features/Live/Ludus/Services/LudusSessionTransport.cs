@@ -194,6 +194,9 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                         message.Clear();
                         string parseError;
                         DecodedLudusEnvelope envelope = LudusProto.Decode(bytes, out parseError);
+                        if (envelope?.Type == LudusEnvelopeType.RoomSnapshot) {
+                            envelope.PreparedRooms = OwnedRoomSnapshotPreparation.Prepare(envelope.Rooms);
+                        }
                         EnqueueCurrent(connection, () => {
                             if (parseError != null) {
                                 Plugin.Log.Warn($"Failed to parse ludus protobuf frame: {parseError}");

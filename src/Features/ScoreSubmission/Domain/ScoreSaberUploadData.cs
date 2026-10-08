@@ -6,6 +6,8 @@ using ScoreSaber.Features.Players.Domain;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ScoreSaber.Features.ScoreSubmission.Domain {
 
@@ -97,7 +99,38 @@ namespace ScoreSaber.Features.ScoreSubmission.Domain {
             if (mappersAndLighters.Count == 1) {
                 return mappersAndLighters.First();
             }
-            return $"{string.Join(", ", mappersAndLighters.Take(mappersAndLighters.Count - 1))} & {mappersAndLighters.Last()}";
+            if (CanPrepareAuthors(mappersAndLighters)) {
+                Task<string> preparation;
+                try {
+                    preparation = Task.Run(() => JoinLevelAuthors(mappersAndLighters));
+                } catch (Exception) {
+                    return JoinLevelAuthors(mappersAndLighters);
+                }
+
+                return preparation.GetAwaiter().GetResult();
+            }
+
+            return JoinLevelAuthors(mappersAndLighters);
+        }
+
+        private static bool CanPrepareAuthors(List<string> authors) {
+            if (Thread.CurrentThread.IsThreadPoolThread || authors.Count > 4096) {
+                return false;
+            }
+
+            long characters = 0;
+            foreach (string author in authors) {
+                characters += author?.Length ?? 0;
+                if (characters > 4 * 1024 * 1024) {
+                    return false;
+                }
+            }
+
+            return characters >= 256 * 1024;
+        }
+
+        private static string JoinLevelAuthors(List<string> authors) {
+            return $"{string.Join(", ", authors.Take(authors.Count - 1))} & {authors.Last()}";
         }
     }
 }

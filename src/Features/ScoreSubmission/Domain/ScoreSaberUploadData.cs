@@ -100,17 +100,21 @@ namespace ScoreSaber.Features.ScoreSubmission.Domain {
                 return mappersAndLighters.First();
             }
             if (CanPrepareAuthors(mappersAndLighters)) {
-                Task<string> preparation;
-                try {
-                    preparation = Task.Run(() => JoinLevelAuthors(mappersAndLighters));
-                } catch (Exception) {
-                    return JoinLevelAuthors(mappersAndLighters);
-                }
-
-                return preparation.GetAwaiter().GetResult();
+                return PrepareLevelAuthors(mappersAndLighters);
             }
 
             return JoinLevelAuthors(mappersAndLighters);
+        }
+
+        private static string PrepareLevelAuthors(List<string> authors) {
+            Task<string> preparation;
+            try {
+                preparation = Task.Run(() => JoinLevelAuthors(authors));
+            } catch (Exception) {
+                return JoinLevelAuthors(authors);
+            }
+
+            return preparation.GetAwaiter().GetResult();
         }
 
         private static bool CanPrepareAuthors(List<string> authors) {

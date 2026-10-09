@@ -400,15 +400,15 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/leaderboards/hash/{hash}/{mode}/{difficulty}"
                     urlBuilder_.Append("api/v2/leaderboards/hash/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(hash, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(hash, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append('/');
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(mode, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(mode, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append('/');
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(difficulty, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(difficulty, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append('?');
                     if (realmId != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     urlBuilder_.Length--;
 
@@ -509,52 +509,52 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/leaderboards/hash/{hash}/{mode}/{difficulty}/scores"
                     urlBuilder_.Append("api/v2/leaderboards/hash/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(hash, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(hash, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append('/');
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(mode, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(mode, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append('/');
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(difficulty, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(difficulty, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append("/scores");
                     urlBuilder_.Append('?');
                     if (page != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("page")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(page, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("page")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(page, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (limit != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("limit")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(limit, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("limit")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(limit, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (pivot != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("pivot")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(pivot, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("pivot")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(pivot, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (scope != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("scope")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(scope, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("scope")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(scope, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (hideNA != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("hideNA")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(hideNA, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("hideNA")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(hideNA, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (search != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("search")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(search, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("search")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(search, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (sort != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("sort")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(sort, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("sort")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(sort, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (sortDirection != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("sortDirection")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(sortDirection, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("sortDirection")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(sortDirection, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (realmId != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (includePlayerScore != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("includePlayerScore")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(includePlayerScore, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("includePlayerScore")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(includePlayerScore, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     urlBuilder_.Length--;
 
@@ -632,11 +632,11 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/maps/{id}"
                     urlBuilder_.Append("api/v2/maps/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append('?');
                     if (realmId != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     urlBuilder_.Length--;
 
@@ -714,11 +714,11 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/maps/hash/{hash}"
                     urlBuilder_.Append("api/v2/maps/hash/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(hash, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(hash, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append('?');
                     if (realmId != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     urlBuilder_.Length--;
 
@@ -813,43 +813,43 @@ namespace ScoreSaber.Core.Api.Generated
                     urlBuilder_.Append('?');
                     if (page != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("page")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(page, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("page")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(page, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (limit != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("limit")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(limit, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("limit")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(limit, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (countries != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("countries")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(countries, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("countries")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(countries, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (scope != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("scope")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(scope, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("scope")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(scope, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (search != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("search")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(search, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("search")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(search, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (realmId != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (includeInactive != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("includeInactive")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(includeInactive, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("includeInactive")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(includeInactive, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (sort != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("sort")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(sort, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("sort")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(sort, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (sortDirection != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("sortDirection")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(sortDirection, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("sortDirection")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(sortDirection, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     if (pivot != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("pivot")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(pivot, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("pivot")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(pivot, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     urlBuilder_.Length--;
 
@@ -927,11 +927,11 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/players/{id}"
                     urlBuilder_.Append("api/v2/players/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append('?');
                     if (realmId != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     urlBuilder_.Length--;
 
@@ -1009,12 +1009,12 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/players/{id}/basic"
                     urlBuilder_.Append("api/v2/players/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append("/basic");
                     urlBuilder_.Append('?');
                     if (realmId != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     urlBuilder_.Length--;
 
@@ -1092,12 +1092,12 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/players/{id}/history"
                     urlBuilder_.Append("api/v2/players/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append("/history");
                     urlBuilder_.Append('?');
                     if (realmId != null)
                     {
-                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                        urlBuilder_.Append(System.Uri.EscapeDataString("realmId")).Append('=').Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(realmId, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
                     }
                     urlBuilder_.Length--;
 
@@ -1174,7 +1174,7 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/players/{id}/global-history"
                     urlBuilder_.Append("api/v2/players/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append("/global-history");
 
                     PrepareRequest(client_, request_, urlBuilder_);
@@ -1321,7 +1321,7 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/realms/{id}"
                     urlBuilder_.Append("api/v2/realms/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
 
                     PrepareRequest(client_, request_, urlBuilder_);
 
@@ -1483,7 +1483,7 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/live/player/tournaments/{tournamentId}/rooms"
                     urlBuilder_.Append("api/v2/live/player/tournaments/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(tournamentId, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(tournamentId, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append("/rooms");
 
                     PrepareRequest(client_, request_, urlBuilder_);
@@ -1570,9 +1570,9 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/live/player/tournaments/{tournamentId}/rooms/{matchId}"
                     urlBuilder_.Append("api/v2/live/player/tournaments/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(tournamentId, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(tournamentId, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append("/rooms/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(matchId, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(matchId, System.Globalization.CultureInfo.InvariantCulture)));
 
                     PrepareRequest(client_, request_, urlBuilder_);
 
@@ -1655,7 +1655,7 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/live/player/rooms/by-invite-code/{inviteCode}"
                     urlBuilder_.Append("api/v2/live/player/rooms/by-invite-code/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(inviteCode, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(inviteCode, System.Globalization.CultureInfo.InvariantCulture)));
 
                     PrepareRequest(client_, request_, urlBuilder_);
 
@@ -1730,7 +1730,7 @@ namespace ScoreSaber.Core.Api.Generated
                     if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder_.Append(_baseUrl);
                     // Operation Path: "api/v2/scores/{id}/replay"
                     urlBuilder_.Append("api/v2/scores/");
-                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append(ScoreSaber.Core.Api.ApiUriPreparation.Escape(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append("/replay");
 
                     PrepareRequest(client_, request_, urlBuilder_);

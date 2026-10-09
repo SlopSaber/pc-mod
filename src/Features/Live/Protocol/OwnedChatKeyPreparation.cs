@@ -1,6 +1,8 @@
 using ScoreSaber.Live.V1;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using ScoreSaber.Features.Live.Ludus.Domain;
 
 namespace ScoreSaber.Features.Live.Protocol {
     internal sealed class OwnedChatKeyPreparation {
@@ -11,9 +13,11 @@ namespace ScoreSaber.Features.Live.Protocol {
         private readonly string[] _matchIds;
         private readonly int[] _matchGroups;
         private readonly string[] _groupIds;
+        private readonly string[] _fallbackMatchIds;
+        private readonly ulong[] _fallbackSequences;
 
         private OwnedChatKeyPreparation(List<LiveChatMessage> source, LiveChatMessage[] messages, string[] keys, int[] hashes,
-            string[] matchIds, int[] matchGroups, string[] groupIds) {
+            string[] matchIds, int[] matchGroups, string[] groupIds, string[] fallbackMatchIds, ulong[] fallbackSequences) {
             _source = source;
             _messages = messages;
             _keys = keys;
@@ -21,6 +25,8 @@ namespace ScoreSaber.Features.Live.Protocol {
             _matchIds = matchIds;
             _matchGroups = matchGroups;
             _groupIds = groupIds;
+            _fallbackMatchIds = fallbackMatchIds;
+            _fallbackSequences = fallbackSequences;
         }
 
         internal static OwnedChatKeyPreparation Prepare(LiveChatSnapshot snapshot) {
@@ -31,18 +37,25 @@ namespace ScoreSaber.Features.Live.Protocol {
                 }
                 long keyLength = 0;
                 long matchLength = 0;
+                long fallbackLength = 0;
                 for (int i = 0; i < source.Count; i++) {
                     keyLength += source[i]?.MessageId?.Length ?? 0;
                     matchLength += source[i]?.MatchId?.Length ?? 0;
+                    if (source[i] != null && string.IsNullOrEmpty(source[i].MessageId)) {
+                        fallbackLength += source[i].MatchId?.Length ?? 0;
+                    }
                 }
                 bool prepareKeys = keyLength >= 1024 * 1024;
                 bool prepareMatches = matchLength >= 1024 * 1024;
-                if (!prepareKeys && !prepareMatches) {
+                bool prepareFallbacks = fallbackLength >= 1024 * 1024;
+                if (!prepareKeys && !prepareMatches && !prepareFallbacks) {
                     return null;
                 }
                 var messages = new LiveChatMessage[source.Count];
-                var keys = prepareKeys ? new string[source.Count] : null;
-                var hashes = prepareKeys ? new int[source.Count] : null;
+                var keys = prepareKeys || prepareFallbacks ? new string[source.Count] : null;
+                var hashes = prepareKeys || prepareFallbacks ? new int[source.Count] : null;
+                var fallbackMatchIds = prepareFallbacks ? new string[source.Count] : null;
+                var fallbackSequences = prepareFallbacks ? new ulong[source.Count] : null;
                 var matchIds = prepareMatches ? new string[source.Count] : null;
                 var matchGroups = prepareMatches ? new int[source.Count] : null;
                 var groups = prepareMatches ? new Dictionary<string, int>(StringComparer.Ordinal) : null;
@@ -56,6 +69,15 @@ namespace ScoreSaber.Features.Live.Protocol {
                         if (!string.IsNullOrEmpty(key)) {
                             hashes[i] = StringComparer.Ordinal.GetHashCode(key);
                         }
+                    }
+                    if (prepareFallbacks && message != null && string.IsNullOrEmpty(message.MessageId)) {
+                        string matchId = message.MatchId ?? string.Empty;
+                        ulong sequence = message.RoomSequence;
+                        string key = string.Format(CultureInfo.InvariantCulture, "{0}:{1}", matchId, sequence);
+                        fallbackMatchIds[i] = matchId;
+                        fallbackSequences[i] = sequence;
+                        keys[i] = key;
+                        hashes[i] = StringComparer.Ordinal.GetHashCode(key);
                     }
                     if (prepareMatches) {
                         string matchId = message?.MatchId;
@@ -71,10 +93,36 @@ namespace ScoreSaber.Features.Live.Protocol {
                         }
                     }
                 }
-                return new OwnedChatKeyPreparation(source, messages, keys, hashes, matchIds, matchGroups, groupIds?.ToArray());
+                return new OwnedChatKeyPreparation(source, messages, keys, hashes, matchIds, matchGroups, groupIds?.ToArray(),
+                    fallbackMatchIds, fallbackSequences);
             } catch {
                 return null;
             }
+        }
+
+        internal bool TryGetKey(List<LiveChatMessage> source, int position, LiveChatMessage message, LiveChatEntry entry,
+            out string key, out int hash) {
+            key = null;
+            hash = 0;
+            if (_keys == null || !ReferenceEquals(source, _source) || (uint)position >= (uint)_messages.Length
+                || !ReferenceEquals(message, _messages[position])) {
+                return false;
+            }
+            if (string.IsNullOrEmpty(entry.MessageId)) {
+                if (_fallbackMatchIds == null || _fallbackMatchIds[position] == null
+                    || !ReferenceEquals(entry.MatchId, _fallbackMatchIds[position])
+                    || entry.RoomSequence != _fallbackSequences[position]) {
+                    return false;
+                }
+            } else if (!ReferenceEquals(entry.MessageId, _keys[position])) {
+                return false;
+            }
+            key = _keys[position];
+            if (key == null) {
+                return false;
+            }
+            hash = _hashes[position];
+            return true;
         }
 
         internal bool TryGetHash(List<LiveChatMessage> source, int position, LiveChatMessage message, string key, out int hash) {

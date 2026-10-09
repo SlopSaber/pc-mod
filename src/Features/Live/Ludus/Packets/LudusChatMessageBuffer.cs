@@ -65,8 +65,9 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                     LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId, preparedKeys, source, position, matchCache);
                     if (entry != null) {
                         int hash = 0;
-                        bool prepared = preparedKeys != null && preparedKeys.TryGetHash(source, position, message, entry.MessageId, out hash);
-                        Upsert(entry, prepared, hash);
+                        string key = null;
+                        bool prepared = preparedKeys != null && preparedKeys.TryGetKey(source, position, message, entry, out key, out hash);
+                        Upsert(entry, prepared, key, hash);
                     }
                     position++;
                 }
@@ -110,19 +111,19 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private void Upsert(LiveChatEntry entry) {
-            Upsert(entry, false, 0);
+            Upsert(entry, false, null, 0);
         }
 
-        private void Upsert(LiveChatEntry entry, bool prepared, int hash) {
+        private void Upsert(LiveChatEntry entry, bool prepared, string preparedKey, int hash) {
             try {
-                UpsertCore(entry, prepared, hash);
+                UpsertCore(entry, prepared, preparedKey, hash);
             } finally {
                 _replaceKeyComparer?.Clear();
             }
         }
 
-        private void UpsertCore(LiveChatEntry entry, bool prepared, int hash) {
-            bool indexed = TryFindReplaceKey(entry, prepared, hash, out int index, out string key);
+        private void UpsertCore(LiveChatEntry entry, bool prepared, string preparedKey, int hash) {
+            bool indexed = TryFindReplaceKey(entry, prepared, preparedKey, hash, out int index, out string key);
             if (!indexed) {
                 index = _messages.FindIndex(item => item.Key == entry.Key);
             }
@@ -154,7 +155,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             _replaceKeyCulture = null;
         }
 
-        private bool TryFindReplaceKey(LiveChatEntry entry, bool prepared, int hash, out int index, out string key) {
+        private bool TryFindReplaceKey(LiveChatEntry entry, bool prepared, string preparedKey, int hash, out int index, out string key) {
             index = -1;
             key = null;
             if (!_replaceIndexAllowed || Thread.CurrentThread.IsThreadPoolThread
@@ -175,7 +176,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 ClearReplaceKeyIndex();
                 return false;
             }
-            key = entry.Key;
+            key = prepared ? preparedKey : entry.Key;
             if (prepared) {
                 _replaceKeyComparer.Set(key, hash);
             }

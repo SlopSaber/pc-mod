@@ -22,14 +22,86 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         private bool _replaceIndexAllowed;
         private bool _replaceIndexAttempted;
 
-        internal IReadOnlyList<LiveChatEntry> CurrentMessages => _messages.ToArray();
+        internal IReadOnlyList<LiveChatEntry> CurrentMessages => TryPrepareSnapshot(null, out LiveChatEntry[] entries)
+            ? entries : _messages.ToArray();
 
         internal IReadOnlyList<LiveChatEntry> MessagesFor(string matchId) {
             if (string.IsNullOrEmpty(matchId)) {
                 return Array.Empty<LiveChatEntry>();
             }
 
+            if (TryPrepareSnapshot(matchId, out LiveChatEntry[] entries)) {
+                return entries;
+            }
+            return FilterMessages(matchId);
+        }
+
+        private LiveChatEntry[] FilterMessages(string matchId) {
             return _messages.FindAll(message => string.Equals(message.MatchId, matchId, StringComparison.Ordinal)).ToArray();
+        }
+
+        private bool TryPrepareSnapshot(string matchId, out LiveChatEntry[] entries) {
+            entries = null;
+            if (Thread.CurrentThread.IsThreadPoolThread || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
+                return false;
+            }
+            if (_messages.Count < 4096) {
+                if (matchId == null || (long)matchId.Length * _messages.Count < 1024 * 1024) {
+                    return false;
+                }
+                long comparisonLength = 0;
+                for (int i = 0; i < _messages.Count; i++) {
+                    string value = _messages[i].MatchId;
+                    if (!ReferenceEquals(value, matchId) && value.Length == matchId.Length) {
+                        comparisonLength += value.Length;
+                    }
+                }
+                if (comparisonLength < 1024 * 1024) {
+                    return false;
+                }
+            }
+            return TryPrepareOwnedSnapshot(matchId, out entries);
+        }
+
+        private bool TryPrepareOwnedSnapshot(string matchId, out LiveChatEntry[] entries) {
+            entries = null;
+            Task<OwnedSnapshot> task = null;
+            try {
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => CreateOwnedSnapshot(matchId), out task)) {
+                    return false;
+                }
+            } catch {
+                if (task == null) {
+                    return false;
+                }
+            }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            OwnedSnapshot result = task.GetAwaiter().GetResult();
+            result.Error?.Throw();
+            entries = result.Entries;
+            return true;
+        }
+
+        private OwnedSnapshot CreateOwnedSnapshot(string matchId) {
+            try {
+                return new OwnedSnapshot(matchId == null ? _messages.ToArray() : FilterMessages(matchId), null);
+            } catch (Exception error) {
+                return new OwnedSnapshot(null, ExceptionDispatchInfo.Capture(error));
+            }
+        }
+
+        private sealed class OwnedSnapshot {
+            internal readonly LiveChatEntry[] Entries;
+            internal readonly ExceptionDispatchInfo Error;
+
+            internal OwnedSnapshot(LiveChatEntry[] entries, ExceptionDispatchInfo error) {
+                Entries = entries;
+                Error = error;
+            }
         }
 
         internal bool Apply(LiveChatMessage message, string currentMatchId) {

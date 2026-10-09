@@ -65,7 +65,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             entries = null;
             Task<OwnedSnapshot> task = null;
             try {
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => CreateOwnedSnapshot(matchId), out task)) {
+                if (!TryQueueBufferPreparation(() => CreateOwnedSnapshot(matchId), out task)) {
                     return false;
                 }
             } catch {
@@ -182,7 +182,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         private bool TryClearOwnedBuffer() {
             Task<ExceptionDispatchInfo> task = null;
             try {
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(ClearOwnedBuffer, out task)) {
+                if (!TryQueueBufferPreparation(ClearOwnedBuffer, out task)) {
                     return false;
                 }
             } catch {
@@ -336,7 +336,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             Task<OwnedReplaceIndex> task = null;
             try {
                 OwnedChatKeyPreparation preparation = _replacePreparation;
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => BuildOwnedReplaceIndex(preparation), out task)) {
+                if (!TryQueueBufferPreparation(() => BuildOwnedReplaceIndex(preparation), out task)) {
                     return false;
                 }
             } catch {
@@ -418,7 +418,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         private bool TrySortOwnedBuffer() {
             Task<ExceptionDispatchInfo> task = null;
             try {
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(SortOwnedBuffer, out task)) {
+                if (!TryQueueBufferPreparation(SortOwnedBuffer, out task)) {
                     return false;
                 }
             } catch {
@@ -540,7 +540,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             index = -1;
             Task<OwnedFindResult> task = null;
             try {
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => FindOwnedEntry(entry), out task)) {
+                if (!TryQueueBufferPreparation(() => FindOwnedEntry(entry), out task)) {
                     return false;
                 }
             } catch {
@@ -575,6 +575,13 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 Index = index;
                 Error = error;
             }
+        }
+
+        private static bool TryQueueBufferPreparation<T>(Func<T> prepare, out Task<T> task) {
+            if (ReplayStorageService.TryQueueOwnedPreparationWhenIdle(prepare, out task)) {
+                return true;
+            }
+            return ReplayStorageService.TryStartIndependentOwnedPreparation(prepare, out task);
         }
     }
 }

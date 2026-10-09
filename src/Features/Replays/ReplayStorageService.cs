@@ -177,6 +177,24 @@ namespace ScoreSaber.Features.Replays {
             }
         }
 
+        internal static bool TryStartIndependentOwnedPreparation<T>(Func<T> prepare, out Task<T> task) {
+            task = null;
+            try {
+                if (ExecutionContext.IsFlowSuppressed()) {
+                    task = Task.Factory.StartNew(prepare, CancellationToken.None,
+                        TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+                } else {
+                    using (ExecutionContext.SuppressFlow()) {
+                        task = Task.Factory.StartNew(prepare, CancellationToken.None,
+                            TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+                    }
+                }
+                return true;
+            } catch {
+                return task != null;
+            }
+        }
+
         private enum Operation {
             Exists,
             Read,

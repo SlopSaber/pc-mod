@@ -16,6 +16,8 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         private readonly int _ownerThread = Thread.CurrentThread.ManagedThreadId;
         private Dictionary<string, int> _replaceKeyIndex;
         private PreparedKeyComparer _replaceKeyComparer;
+        private OwnedChatKeyPreparation _replacePreparation;
+        private OwnedChatKeyPreparation.KeySlots _replaceKeySlots;
         private CultureInfo _replaceKeyCulture;
         private bool _replaceIndexAllowed;
         private bool _replaceIndexAttempted;
@@ -57,6 +59,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
 
             _replaceIndexAllowed = true;
             _replaceIndexAttempted = false;
+            _replacePreparation = preparedKeys;
             try {
                 List<LiveChatMessage> source = snapshot.Messages;
                 byte[] matchCache = preparedKeys?.CreateMatchCache();
@@ -67,7 +70,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                         int hash = 0;
                         string key = null;
                         bool prepared = preparedKeys != null && preparedKeys.TryGetKey(source, position, message, entry, out key, out hash);
-                        Upsert(entry, prepared, key, hash);
+                        Upsert(entry, prepared, key, hash, position);
                     }
                     position++;
                 }
@@ -75,6 +78,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 SortAndTrim();
             } finally {
                 _replaceIndexAllowed = false;
+                _replacePreparation = null;
                 ClearReplaceKeyIndex();
             }
         }
@@ -111,19 +115,19 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private void Upsert(LiveChatEntry entry) {
-            Upsert(entry, false, null, 0);
+            Upsert(entry, false, null, 0, -1);
         }
 
-        private void Upsert(LiveChatEntry entry, bool prepared, string preparedKey, int hash) {
+        private void Upsert(LiveChatEntry entry, bool prepared, string preparedKey, int hash, int position) {
             try {
-                UpsertCore(entry, prepared, preparedKey, hash);
+                UpsertCore(entry, prepared, preparedKey, hash, position);
             } finally {
                 _replaceKeyComparer?.Clear();
             }
         }
 
-        private void UpsertCore(LiveChatEntry entry, bool prepared, string preparedKey, int hash) {
-            bool indexed = TryFindReplaceKey(entry, prepared, preparedKey, hash, out int index, out string key);
+        private void UpsertCore(LiveChatEntry entry, bool prepared, string preparedKey, int hash, int position) {
+            bool indexed = TryFindReplaceKey(entry, prepared, preparedKey, hash, position, out int index, out string key);
             if (!indexed) {
                 index = _messages.FindIndex(item => item.Key == entry.Key);
             }
@@ -134,7 +138,13 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 _messages.Add(entry);
             }
             if (indexed) {
-                try { _replaceKeyIndex[key] = index; }
+                try {
+                    if (_replaceKeySlots != null) {
+                        _replaceKeySlots.Set(position, index);
+                    } else {
+                        _replaceKeyIndex[key] = index;
+                    }
+                }
                 catch { ClearReplaceKeyIndex(); }
             }
         }
@@ -152,14 +162,19 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         private void ClearReplaceKeyIndex() {
             _replaceKeyIndex = null;
             _replaceKeyComparer = null;
+            _replaceKeySlots = null;
             _replaceKeyCulture = null;
         }
 
-        private bool TryFindReplaceKey(LiveChatEntry entry, bool prepared, string preparedKey, int hash, out int index, out string key) {
+        private bool TryFindReplaceKey(LiveChatEntry entry, bool prepared, string preparedKey, int hash, int position,
+            out int index, out string key) {
             index = -1;
             key = null;
             if (!_replaceIndexAllowed || Thread.CurrentThread.IsThreadPoolThread
                 || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
+                if (_replaceKeySlots != null) {
+                    ClearReplaceKeyIndex();
+                }
                 return false;
             }
             if (_replaceKeyIndex == null) {
@@ -176,6 +191,13 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 ClearReplaceKeyIndex();
                 return false;
             }
+            if (_replaceKeySlots != null) {
+                if (prepared && _replaceKeySlots.TryFind(position, out index)) {
+                    return true;
+                }
+                ClearReplaceKeyIndex();
+                return false;
+            }
             key = prepared ? preparedKey : entry.Key;
             if (prepared) {
                 _replaceKeyComparer.Set(key, hash);
@@ -187,7 +209,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private bool TryBuildReplaceKeyIndex() {
-            Task<Dictionary<string, int>> task = null;
+            Task<OwnedReplaceIndex> task = null;
             CultureInfo culture;
             try {
                 culture = CultureInfo.CurrentCulture;
@@ -196,7 +218,8 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                     return false;
                 }
                 CultureInfo ownedCulture = CultureInfo.ReadOnly((CultureInfo)culture.Clone());
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => BuildOwnedKeyIndex(ownedCulture), out task)) {
+                OwnedChatKeyPreparation preparation = _replacePreparation;
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => BuildOwnedReplaceIndex(ownedCulture, preparation), out task)) {
                     return false;
                 }
             } catch {
@@ -211,13 +234,30 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 catch (AggregateException) { }
             }
             try {
-                _replaceKeyIndex = task.GetAwaiter().GetResult();
+                OwnedReplaceIndex result = task.GetAwaiter().GetResult();
+                _replaceKeyIndex = result.Index;
+                _replaceKeySlots = result.Slots;
                 _replaceKeyComparer = _replaceKeyIndex.Comparer as PreparedKeyComparer;
                 _replaceKeyCulture = culture;
                 return true;
             } catch {
                 ClearReplaceKeyIndex();
                 return false;
+            }
+        }
+
+        private OwnedReplaceIndex BuildOwnedReplaceIndex(CultureInfo culture, OwnedChatKeyPreparation preparation) {
+            Dictionary<string, int> index = BuildOwnedKeyIndex(culture);
+            return new OwnedReplaceIndex(index, preparation?.CreateKeySlots(index));
+        }
+
+        private sealed class OwnedReplaceIndex {
+            internal readonly Dictionary<string, int> Index;
+            internal readonly OwnedChatKeyPreparation.KeySlots Slots;
+
+            internal OwnedReplaceIndex(Dictionary<string, int> index, OwnedChatKeyPreparation.KeySlots slots) {
+                Index = index;
+                Slots = slots;
             }
         }
 

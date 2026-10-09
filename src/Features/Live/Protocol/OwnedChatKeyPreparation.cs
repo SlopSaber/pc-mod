@@ -141,6 +141,56 @@ namespace ScoreSaber.Features.Live.Protocol {
             catch { return null; }
         }
 
+        internal KeySlots CreateKeySlots(Dictionary<string, int> currentIndex) {
+            try {
+                if (_keys == null) {
+                    return null;
+                }
+                var rows = new int[_keys.Length];
+                var groups = new Dictionary<string, int>(StringComparer.Ordinal);
+                var indices = new List<int>();
+                for (int i = 0; i < _keys.Length; i++) {
+                    string key = _keys[i];
+                    rows[i] = -1;
+                    if (key == null) {
+                        continue;
+                    }
+                    if (!groups.TryGetValue(key, out int group)) {
+                        group = indices.Count;
+                        groups.Add(key, group);
+                        indices.Add(currentIndex.TryGetValue(key, out int index) ? index : -1);
+                    }
+                    rows[i] = group;
+                }
+                return new KeySlots(rows, indices.ToArray());
+            } catch {
+                return null;
+            }
+        }
+
+        internal sealed class KeySlots {
+            private readonly int[] _rows;
+            private readonly int[] _indices;
+
+            internal KeySlots(int[] rows, int[] indices) {
+                _rows = rows;
+                _indices = indices;
+            }
+
+            internal bool TryFind(int position, out int index) {
+                index = -1;
+                if ((uint)position >= (uint)_rows.Length || _rows[position] < 0) {
+                    return false;
+                }
+                index = _indices[_rows[position]];
+                return true;
+            }
+
+            internal void Set(int position, int index) {
+                _indices[_rows[position]] = index;
+            }
+        }
+
         internal bool TryMatches(List<LiveChatMessage> source, int position, LiveChatMessage message,
             string matchId, string currentMatchId, byte[] cache, out bool matches) {
             matches = false;

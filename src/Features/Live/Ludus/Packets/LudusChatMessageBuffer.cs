@@ -4,7 +4,6 @@ using ScoreSaber.Live.V1;
 using ScoreSaber.Features.Replays;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,7 +17,6 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         private PreparedKeyComparer _replaceKeyComparer;
         private OwnedChatKeyPreparation _replacePreparation;
         private OwnedChatKeyPreparation.KeySlots _replaceKeySlots;
-        private CultureInfo _replaceKeyCulture;
         private bool _replaceIndexAllowed;
         private bool _replaceIndexAttempted;
 
@@ -274,7 +272,6 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             _replaceKeyIndex = null;
             _replaceKeyComparer = null;
             _replaceKeySlots = null;
-            _replaceKeyCulture = null;
         }
 
         private bool TryFindReplaceKey(LiveChatEntry entry, bool prepared, string preparedKey, int hash, int position,
@@ -298,10 +295,6 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                     return false;
                 }
             }
-            if (!ReferenceEquals(CultureInfo.CurrentCulture, _replaceKeyCulture)) {
-                ClearReplaceKeyIndex();
-                return false;
-            }
             if (_replaceKeySlots != null) {
                 if (prepared && _replaceKeySlots.TryFind(position, out index)) {
                     return true;
@@ -321,23 +314,15 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
 
         private bool TryBuildReplaceKeyIndex() {
             Task<OwnedReplaceIndex> task = null;
-            CultureInfo culture;
             try {
-                culture = CultureInfo.CurrentCulture;
-                if (culture.GetType() != typeof(CultureInfo) || !culture.IsReadOnly
-                    || culture.NumberFormat.GetType() != typeof(NumberFormatInfo) || !culture.NumberFormat.IsReadOnly) {
-                    return false;
-                }
-                CultureInfo ownedCulture = CultureInfo.ReadOnly((CultureInfo)culture.Clone());
                 OwnedChatKeyPreparation preparation = _replacePreparation;
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => BuildOwnedReplaceIndex(ownedCulture, preparation), out task)) {
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => BuildOwnedReplaceIndex(preparation), out task)) {
                     return false;
                 }
             } catch {
                 if (task == null) {
                     return false;
                 }
-                culture = CultureInfo.CurrentCulture;
             }
             while (!task.IsCompleted) {
                 try { task.Wait(); }
@@ -349,7 +334,6 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 _replaceKeyIndex = result.Index;
                 _replaceKeySlots = result.Slots;
                 _replaceKeyComparer = _replaceKeyIndex.Comparer as PreparedKeyComparer;
-                _replaceKeyCulture = culture;
                 return true;
             } catch {
                 ClearReplaceKeyIndex();
@@ -357,8 +341,8 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             }
         }
 
-        private OwnedReplaceIndex BuildOwnedReplaceIndex(CultureInfo culture, OwnedChatKeyPreparation preparation) {
-            Dictionary<string, int> index = BuildOwnedKeyIndex(culture);
+        private OwnedReplaceIndex BuildOwnedReplaceIndex(OwnedChatKeyPreparation preparation) {
+            Dictionary<string, int> index = BuildOwnedKeyIndex();
             return new OwnedReplaceIndex(index, preparation?.CreateKeySlots(index));
         }
 
@@ -372,21 +356,15 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             }
         }
 
-        private Dictionary<string, int> BuildOwnedKeyIndex(CultureInfo culture) {
-            CultureInfo previous = CultureInfo.CurrentCulture;
-            try {
-                CultureInfo.CurrentCulture = culture;
-                var index = new Dictionary<string, int>(_messages.Count, new PreparedKeyComparer());
-                for (int i = 0; i < _messages.Count; i++) {
-                    string key = _messages[i].Key;
-                    if (!index.ContainsKey(key)) {
-                        index.Add(key, i);
-                    }
+        private Dictionary<string, int> BuildOwnedKeyIndex() {
+            var index = new Dictionary<string, int>(_messages.Count, new PreparedKeyComparer());
+            for (int i = 0; i < _messages.Count; i++) {
+                string key = _messages[i].Key;
+                if (!index.ContainsKey(key)) {
+                    index.Add(key, i);
                 }
-                return index;
-            } finally {
-                CultureInfo.CurrentCulture = previous;
             }
+            return index;
         }
 
         private sealed class PreparedKeyComparer : IEqualityComparer<string> {
@@ -420,13 +398,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         private bool TrySortOwnedBuffer() {
             Task<ExceptionDispatchInfo> task = null;
             try {
-                CultureInfo culture = CultureInfo.CurrentCulture;
-                if (culture.GetType() != typeof(CultureInfo) || !culture.IsReadOnly
-                    || culture.NumberFormat.GetType() != typeof(NumberFormatInfo) || !culture.NumberFormat.IsReadOnly) {
-                    return false;
-                }
-                CultureInfo ownedCulture = CultureInfo.ReadOnly((CultureInfo)culture.Clone());
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => SortOwnedBuffer(ownedCulture), out task)) {
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(SortOwnedBuffer, out task)) {
                     return false;
                 }
             } catch {
@@ -445,21 +417,15 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             return true;
         }
 
-        private ExceptionDispatchInfo SortOwnedBuffer(CultureInfo culture) {
-            CultureInfo previous = CultureInfo.CurrentCulture;
+        private ExceptionDispatchInfo SortOwnedBuffer() {
             try {
-                CultureInfo.CurrentCulture = culture;
-                try {
-                    _messages.Sort(CompareEntries);
-                    if (_messages.Count > MaxMessages) {
-                        _messages.RemoveRange(0, _messages.Count - MaxMessages);
-                    }
-                    return null;
-                } catch (Exception error) {
-                    return ExceptionDispatchInfo.Capture(error);
+                _messages.Sort(CompareEntries);
+                if (_messages.Count > MaxMessages) {
+                    _messages.RemoveRange(0, _messages.Count - MaxMessages);
                 }
-            } finally {
-                CultureInfo.CurrentCulture = previous;
+                return null;
+            } catch (Exception error) {
+                return ExceptionDispatchInfo.Capture(error);
             }
         }
 

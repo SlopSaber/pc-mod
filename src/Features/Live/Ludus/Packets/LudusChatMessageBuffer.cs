@@ -230,7 +230,9 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             bool matches;
             if ((matchResults == null || !matchResults.TryGet(source, position, message, matchId, out matches))
                 && (preparedKeys == null || !preparedKeys.TryMatches(source, position, message, matchId, currentMatchId, matchCache, out matches))) {
-                matches = string.Equals(matchId, currentMatchId, StringComparison.Ordinal);
+                if (!TryCompareOwnedMatch(matchId, currentMatchId, out matches)) {
+                    matches = string.Equals(matchId, currentMatchId, StringComparison.Ordinal);
+                }
             }
             return matches ? LiveChatEntry.FromProto(message) : null;
         }
@@ -593,13 +595,10 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
 
         private static bool TryCompareOwnedMatch(string matchId, string currentMatchId, int ownerThread, out bool matches) {
             matches = false;
-            if (ownerThread == 0 || Thread.CurrentThread.IsThreadPoolThread
-                || Thread.CurrentThread.ManagedThreadId != ownerThread || matchId == null || currentMatchId == null
-                || ReferenceEquals(matchId, currentMatchId) || matchId.Length != currentMatchId.Length
-                || matchId.Length < 1024 * 1024) {
+            if (ownerThread == 0) {
                 return false;
             }
-            return TryCompareOwnedMatchCore(matchId, currentMatchId, out matches);
+            return TryCompareOwnedMatch(matchId, currentMatchId, out matches);
         }
 
         private static bool TryCompareOwnedMatchCore(string matchId, string currentMatchId, out bool matches) {
@@ -625,6 +624,16 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
 
         private static bool TryQueueOwnedMatch(string matchId, string currentMatchId, out Task<bool> task) {
             return TryQueueBufferPreparation(() => string.Equals(matchId, currentMatchId, StringComparison.Ordinal), out task);
+        }
+
+        private static bool TryCompareOwnedMatch(string matchId, string currentMatchId, out bool matches) {
+            matches = false;
+            if (Thread.CurrentThread.IsThreadPoolThread || matchId == null || currentMatchId == null
+                || ReferenceEquals(matchId, currentMatchId) || matchId.Length != currentMatchId.Length
+                || matchId.Length < 1024 * 1024) {
+                return false;
+            }
+            return TryCompareOwnedMatchCore(matchId, currentMatchId, out matches);
         }
     }
 }

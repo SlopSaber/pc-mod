@@ -289,8 +289,8 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 return false;
             }
             if (_replaceKeyIndex == null) {
-                if (_replaceIndexAttempted || _messages.Count < 4096 || Thread.CurrentThread.IsThreadPoolThread
-                    || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
+                if (_replaceIndexAttempted || Thread.CurrentThread.IsThreadPoolThread
+                    || Thread.CurrentThread.ManagedThreadId != _ownerThread || !HasMaterialKeyVolume()) {
                     return false;
                 }
                 _replaceIndexAttempted = true;
@@ -409,8 +409,8 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private bool TrySortLargeOwnedBuffer() {
-            if (_messages.Count < 4096 || Thread.CurrentThread.IsThreadPoolThread
-                || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
+            if (Thread.CurrentThread.IsThreadPoolThread
+                || Thread.CurrentThread.ManagedThreadId != _ownerThread || !HasMaterialKeyVolume()) {
                 return false;
             }
 
@@ -489,6 +489,24 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             }
 
             return string.CompareOrdinal(left.Key, right.Key);
+        }
+
+        private bool HasMaterialKeyVolume() {
+            if (_messages.Count >= 4096) {
+                return true;
+            }
+            long bytes = 0;
+            foreach (LiveChatEntry entry in _messages) {
+                if (entry == null) {
+                    return false;
+                }
+                bytes += (long)(entry.MessageId?.Length ?? 0) * sizeof(char);
+                bytes += (long)(entry.MatchId?.Length ?? 0) * sizeof(char);
+                if (bytes >= 1024 * 1024) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

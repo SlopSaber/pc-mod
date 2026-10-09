@@ -134,7 +134,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             _replacePreparation = preparedKeys;
             try {
                 List<LiveChatMessage> source = snapshot.Messages;
-                byte[] matchCache = preparedKeys?.CreateMatchCache();
+                byte[] matchCache = preparedKeys?.CreateMatchCache(currentMatchId);
                 int position = 0;
                 foreach (LiveChatMessage message in source) {
                     LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId, preparedKeys, source, position, matchCache);

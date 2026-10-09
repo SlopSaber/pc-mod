@@ -3,6 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using ScoreSaber.Features.Live.Ludus.Domain;
+using ScoreSaber.Features.Replays;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ScoreSaber.Features.Live.Protocol {
     internal sealed class OwnedChatKeyPreparation {
@@ -206,6 +209,59 @@ namespace ScoreSaber.Features.Live.Protocol {
                 cache[group] = string.Equals(_groupIds[group], currentMatchId, StringComparison.Ordinal) ? (byte)1 : (byte)2;
             }
             matches = cache[group] == 1;
+            return true;
+        }
+
+        internal byte[] CreateMatchCache(string currentMatchId) {
+            byte[] cache = CreateMatchCache();
+            if (cache == null || Thread.CurrentThread.IsThreadPoolThread || !HasMaterialMatches(currentMatchId)) {
+                return cache;
+            }
+            FillOwnedMatchCache(_groupIds, currentMatchId, cache);
+            return cache;
+        }
+
+        private bool HasMaterialMatches(string currentMatchId) {
+            if (string.IsNullOrEmpty(currentMatchId)) {
+                return false;
+            }
+            long bytes = 0;
+            foreach (string groupId in _groupIds) {
+                if (groupId != null && !ReferenceEquals(groupId, currentMatchId) && groupId.Length == currentMatchId.Length) {
+                    bytes += (long)groupId.Length * sizeof(char);
+                    if (bytes >= 1024 * 1024) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static void FillOwnedMatchCache(string[] groupIds, string currentMatchId, byte[] cache) {
+            Task<bool> task = null;
+            try {
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
+                    () => FillMatchCache(groupIds, currentMatchId, cache), out task)) {
+                    return;
+                }
+            } catch {
+                if (task == null) {
+                    return;
+                }
+            }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            try { task.GetAwaiter().GetResult(); }
+            catch { }
+        }
+
+        private static bool FillMatchCache(string[] groupIds, string currentMatchId, byte[] cache) {
+            for (int i = 0; i < groupIds.Length; i++) {
+                cache[i] = string.Equals(groupIds[i], currentMatchId, StringComparison.Ordinal) ? (byte)1 : (byte)2;
+            }
             return true;
         }
     }

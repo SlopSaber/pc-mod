@@ -74,6 +74,75 @@ namespace ScoreSaber.Features.Live.Compete.Domain {
             }
         }
 
+        internal static bool TryPrepareCurrentPlayers(CompeteRoom room, bool teamMode, CompeteTeam teamOne, out PreparedPlayers prepared) {
+            prepared = null;
+            if (room.GetType() != typeof(CompeteRoom) || teamOne == null || teamOne.GetType() != typeof(CompeteTeam)
+                || !(room.Players is CompetePlayer[] players) || players.GetType() != typeof(CompetePlayer[])
+                || Thread.CurrentThread.IsThreadPoolThread || !HasMaterialPartitions(players, teamMode, teamOne.Id)) {
+                return false;
+            }
+            return TryPrepareOwnedCurrentPlayers(players, teamMode, teamOne.Id, out prepared);
+        }
+
+        private static bool HasMaterialPartitions(CompetePlayer[] players, bool teamMode, string teamOneId) {
+            if (players.Length >= 4096) {
+                return true;
+            }
+            if (!teamMode || string.IsNullOrEmpty(teamOneId)) {
+                return false;
+            }
+            long bytes = 0;
+            foreach (CompetePlayer player in players) {
+                if (player == null || player.GetType() != typeof(CompetePlayer)) {
+                    return false;
+                }
+                string teamId = player.TeamId;
+                if (player.IsActive && teamId != null && !ReferenceEquals(teamId, teamOneId) && teamId.Length == teamOneId.Length) {
+                    bytes += (long)teamId.Length * sizeof(char);
+                    if (bytes >= 1024 * 1024) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static bool TryPrepareOwnedCurrentPlayers(CompetePlayer[] players, bool teamMode, string teamOneId, out PreparedPlayers prepared) {
+            prepared = null;
+            Task<PreparedPlayers> task = null;
+            try {
+                var snapshot = (CompetePlayer[])players.Clone();
+                foreach (CompetePlayer player in snapshot) {
+                    if (player == null || player.GetType() != typeof(CompetePlayer)) {
+                        return false;
+                    }
+                }
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
+                    () => Merge(snapshot, Array.Empty<CompetePlayer>(), teamMode, teamOneId), out task)) {
+                    return false;
+                }
+            } catch {
+                if (task == null) {
+                    return false;
+                }
+            }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            try {
+                PreparedPlayers result = task.GetAwaiter().GetResult();
+                if (!result.Matches(players, teamMode, teamOneId)) {
+                    return false;
+                }
+                prepared = result;
+                return true;
+            } catch {
+                return false;
+            }
+        }
+
         internal sealed class PreparedPlayers {
             private readonly CompetePlayer[] _playerSnapshot;
 

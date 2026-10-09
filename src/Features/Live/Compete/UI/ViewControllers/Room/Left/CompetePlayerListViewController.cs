@@ -110,6 +110,9 @@ namespace ScoreSaber.Features.Live.Compete.UI.ViewControllers.Room.Left {
             OwnedRoomDetailsPreparation.PreparedPlayers prepared = null;
             bool hasPrepared = nextTeamOne != null
                 && room.TryGetPreparedPlayers(nextTeamMode, nextTeamOne.Id, out prepared);
+            if (!hasPrepared) {
+                hasPrepared = OwnedRoomDetailsPreparation.TryPrepareCurrentPlayers(room, nextTeamMode, nextTeamOne, out prepared);
+            }
             CompetePlayer[] nextPlayers = hasPrepared ? prepared.Active : room.Players.Where(player => player.IsActive).ToArray();
             CompetePlayer[] nextRegularPlayers = hasPrepared ? prepared.Regular : nextTeamMode ? Array.Empty<CompetePlayer>() : nextPlayers;
             CompetePlayer[] nextTeamOnePlayers = nextTeamMode

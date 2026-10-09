@@ -2,6 +2,7 @@ using ScoreSaber.Features.Replays;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ScoreSaber.Features.Live.Compete.Domain {
@@ -32,6 +33,45 @@ namespace ScoreSaber.Features.Live.Compete.Domain {
                 teamMode ? Array.Empty<CompetePlayer>() : active,
                 teamMode ? active.Where(player => player.TeamId == teamOneId).ToArray() : Array.Empty<CompetePlayer>(),
                 teamMode ? active.Where(player => player.TeamId != teamOneId).ToArray() : Array.Empty<CompetePlayer>(), teamMode, teamOneId);
+        }
+
+        internal static void TryAttachFreshPlayers(CompeteRoom room) {
+            if (!(room.Players is CompetePlayer[] players) || players.Length < 4096 || Thread.CurrentThread.IsThreadPoolThread) {
+                return;
+            }
+            TryAttachOwnedFreshPlayers(room, players);
+        }
+
+        private static void TryAttachOwnedFreshPlayers(CompeteRoom room, CompetePlayer[] players) {
+            Task<PreparedPlayers> task = null;
+            try {
+                if (!CanCapture(room)) {
+                    return;
+                }
+                CompeteTeam firstTeam = room.Teams.Count > 0 ? room.Teams[0] : null;
+                if (room.Teams.Count > 0 && (firstTeam == null || firstTeam.GetType() != typeof(CompeteTeam))) {
+                    return;
+                }
+                bool teamMode = room.PlayerListMode == CompetePlayerListMode.Teams;
+                string teamOneId = firstTeam == null ? "team1" : firstTeam.Id;
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
+                    () => Merge(players, Array.Empty<CompetePlayer>(), teamMode, teamOneId), out task)) {
+                    return;
+                }
+            } catch {
+                if (task == null) {
+                    return;
+                }
+            }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            try {
+                room.AttachPreparedPlayers(task.GetAwaiter().GetResult());
+            } catch {
+            }
         }
 
         internal sealed class PreparedPlayers {

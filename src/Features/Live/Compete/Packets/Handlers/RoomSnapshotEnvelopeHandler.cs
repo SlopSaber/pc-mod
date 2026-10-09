@@ -83,7 +83,7 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
                     true));
             }
 
-            session.TournamentRoom = new CompeteRoom(
+            var nextRoom = new CompeteRoom(
                 session.TournamentRoom.Id,
                 session.TournamentRoom.TournamentId,
                 session.TournamentRoom.Name,
@@ -96,6 +96,8 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
                 players,
                 localReady,
                 Math.Max(session.TournamentRoom.PlayerCount, players.Count));
+            OwnedRoomDetailsPreparation.TryAttachFreshPlayers(nextRoom);
+            session.TournamentRoom = nextRoom;
             session.NotifyRoomUpdated(session.TournamentRoom);
         }
 

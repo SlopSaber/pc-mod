@@ -102,6 +102,7 @@ namespace ScoreSaber.Core.Api {
 
             public override int Read() => _reader.Read();
             public override int Peek() => _reader.Peek();
+            public override Task<int> ReadAsync(char[] buffer, int index, int count) => _reader.ReadAsync(buffer, index, count);
 
             protected override void Dispose(bool disposing) {
                 if (disposing) {

@@ -93,11 +93,11 @@ namespace ScoreSaber.Core.Api {
                 return false;
             }
 
-            MemoryStream streamCopy = (MemoryStream)Schema.MemberwiseClone.Invoke(stream, null);
-            Decoder decoderCopy = (Decoder)Schema.MemberwiseClone.Invoke(decoder, null);
+            MemoryStream streamCopy = (MemoryStream)Schema.CloneMethod.Invoke(stream, null);
+            Decoder decoderCopy = (Decoder)Schema.CloneMethod.Invoke(decoder, null);
             byte[] bytes = (byte[])((byte[])Schema.ByteBuffer.GetValue(reader)).Clone();
             char[] characters = (char[])((char[])Schema.CharBuffer.GetValue(reader)).Clone();
-            StreamReader copy = (StreamReader)Schema.MemberwiseClone.Invoke(reader, null);
+            StreamReader copy = (StreamReader)Schema.CloneMethod.Invoke(reader, null);
             Schema.Stream.SetValue(copy, streamCopy);
             candidate = copy;
             Schema.Decoder.SetValue(copy, decoderCopy);
@@ -129,7 +129,7 @@ namespace ScoreSaber.Core.Api {
 
         private static class Schema {
             private const BindingFlags InstanceFields = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
-            internal static readonly MethodInfo MemberwiseClone = typeof(object).GetMethod("MemberwiseClone", InstanceFields);
+            internal static readonly MethodInfo CloneMethod = typeof(object).GetMethod("MemberwiseClone", InstanceFields);
             internal static readonly FieldInfo Stream = Field(typeof(StreamReader), "_stream");
             internal static readonly FieldInfo Decoder = Field(typeof(StreamReader), "_decoder");
             internal static readonly FieldInfo ByteBuffer = Field(typeof(StreamReader), "_byteBuffer");

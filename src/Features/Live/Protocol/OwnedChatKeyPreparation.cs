@@ -35,7 +35,7 @@ namespace ScoreSaber.Features.Live.Protocol {
         internal static OwnedChatKeyPreparation Prepare(LiveChatSnapshot snapshot) {
             try {
                 List<LiveChatMessage> source = snapshot?.Messages;
-                if (source == null || source.Count < 4096 || source.Count > 65536) {
+                if (source == null || source.Count == 0 || source.Count > 65536) {
                     return null;
                 }
                 long keyLength = 0;

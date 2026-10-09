@@ -161,8 +161,47 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             }
 
             ClearReplaceKeyIndex();
-            _messages.Clear();
+            if (!TryClearLargeOwnedBuffer()) {
+                _messages.Clear();
+            }
             return true;
+        }
+
+        private bool TryClearLargeOwnedBuffer() {
+            if (_messages.Count < 4096 || Thread.CurrentThread.IsThreadPoolThread
+                || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
+                return false;
+            }
+            return TryClearOwnedBuffer();
+        }
+
+        private bool TryClearOwnedBuffer() {
+            Task<ExceptionDispatchInfo> task = null;
+            try {
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(ClearOwnedBuffer, out task)) {
+                    return false;
+                }
+            } catch {
+                if (task == null) {
+                    return false;
+                }
+            }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            task.GetAwaiter().GetResult()?.Throw();
+            return true;
+        }
+
+        private ExceptionDispatchInfo ClearOwnedBuffer() {
+            try {
+                _messages.Clear();
+                return null;
+            } catch (Exception error) {
+                return ExceptionDispatchInfo.Capture(error);
+            }
         }
 
         private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId) {
@@ -412,6 +451,9 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 CultureInfo.CurrentCulture = culture;
                 try {
                     _messages.Sort(CompareEntries);
+                    if (_messages.Count > MaxMessages) {
+                        _messages.RemoveRange(0, _messages.Count - MaxMessages);
+                    }
                     return null;
                 } catch (Exception error) {
                     return ExceptionDispatchInfo.Capture(error);

@@ -262,6 +262,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             _connectionId = null;
             _clientType = LudusClientType.LudusClientTypePlayer;
             _currentMatchId = string.Empty;
+            _transport.PublishChatMatchId(_currentMatchId);
             _currentTournamentId = string.Empty;
             _transport.DisposeSocket();
             UpdateViewerList(null);
@@ -378,6 +379,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             _roomContext = roomContext;
             _currentTournamentId = tournamentId ?? string.Empty;
             _currentMatchId = ResolveCurrentMatchId(roomContext, currentMatchId);
+            _transport.PublishChatMatchId(_currentMatchId);
         }
 
         private void ApplyClientContext(DecodedLudusEnvelope envelope) {

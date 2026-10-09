@@ -103,8 +103,12 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         internal bool Apply(LiveChatMessage message, string currentMatchId) {
+            return Apply(message, currentMatchId, null);
+        }
+
+        internal bool Apply(LiveChatMessage message, string currentMatchId, OwnedChatMessageMatch preparedMatch) {
             ClearReplaceKeyIndex();
-            LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId);
+            LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId, preparedMatch);
             if (entry == null) {
                 return false;
             }
@@ -205,11 +209,19 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId) {
-            if (message == null || string.IsNullOrEmpty(message.MatchId) || !string.Equals(message.MatchId, currentMatchId, StringComparison.Ordinal)) {
+            return EntryForCurrentMatch(message, currentMatchId, null);
+        }
+
+        private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId, OwnedChatMessageMatch preparedMatch) {
+            if (message == null || string.IsNullOrEmpty(message.MatchId)) {
                 return null;
             }
-
-            return LiveChatEntry.FromProto(message);
+            string matchId = message.MatchId;
+            bool matches;
+            if (preparedMatch == null || !preparedMatch.TryGet(message, matchId, currentMatchId, out matches)) {
+                matches = string.Equals(matchId, currentMatchId, StringComparison.Ordinal);
+            }
+            return matches ? LiveChatEntry.FromProto(message) : null;
         }
 
         private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId,

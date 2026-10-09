@@ -36,6 +36,7 @@ namespace ScoreSaber.Features.Live.Protocol {
         internal OwnedRoomSnapshotPreparation PreparedRooms { get; set; }
         internal ServerCommand ServerCommand { get; set; }
         internal LiveChatMessage ChatMessage { get; set; }
+        internal OwnedChatMessageMatch PreparedChatMessageMatch { get; set; }
         internal LiveChatSnapshot ChatSnapshot { get; set; }
         internal OwnedChatKeyPreparation PreparedChatKeys { get; set; }
         internal string ErrorCode { get; set; }

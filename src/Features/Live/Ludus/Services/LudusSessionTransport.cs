@@ -27,12 +27,15 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
         private int _generation;
         private Task _sendTask = Task.CompletedTask;
         private Task _retirementTask = Task.CompletedTask;
+        private string _chatMatchId = string.Empty;
 
         internal LudusSessionTransport(LudusMainThreadQueue mainThread) {
             _mainThread = mainThread;
         }
 
         internal event Action<DecodedLudusEnvelope> MessageReceived;
+
+        internal void PublishChatMatchId(string matchId) => Volatile.Write(ref _chatMatchId, matchId ?? string.Empty);
         internal event Action<string> ReceiveFailed;
         internal event Action<string> SendFailed;
         internal event Action<string> ReconnectRequested;
@@ -199,6 +202,9 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                         }
                         if (envelope?.Type == LudusEnvelopeType.ChatSnapshot) {
                             envelope.PreparedChatKeys = OwnedChatKeyPreparation.Prepare(envelope.ChatSnapshot);
+                        }
+                        if (envelope?.Type == LudusEnvelopeType.ChatMessage) {
+                            envelope.PreparedChatMessageMatch = OwnedChatMessageMatch.Prepare(envelope.ChatMessage, Volatile.Read(ref _chatMatchId));
                         }
                         EnqueueCurrent(connection, () => {
                             if (parseError != null) {

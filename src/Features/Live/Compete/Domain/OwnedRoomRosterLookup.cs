@@ -1,4 +1,4 @@
-using ScoreSaber.Features.Live.Protocol;
+using ScoreSaber.Live.V1;
 using ScoreSaber.Features.Replays;
 using System;
 using System.Collections.Generic;

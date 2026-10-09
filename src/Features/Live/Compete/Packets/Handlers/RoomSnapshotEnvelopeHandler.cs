@@ -124,9 +124,12 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
 
             string localPlayerId = session.LocalPlayerId;
             if (!string.IsNullOrEmpty(localPlayerId)) {
-                LiveMatchRoomState playerRoom = rooms.FirstOrDefault(item =>
-                    item.MatchId == $"player:{localPlayerId}" ||
-                    item.PlayerIds.Contains(localPlayerId));
+                LiveMatchRoomState playerRoom;
+                if (!OwnedLocalRoomSelection.TryFind(rooms, localPlayerId, out playerRoom)) {
+                    playerRoom = rooms.FirstOrDefault(item =>
+                        item.MatchId == $"player:{localPlayerId}" ||
+                        item.PlayerIds.Contains(localPlayerId));
+                }
                 if (playerRoom != null) {
                     return playerRoom;
                 }

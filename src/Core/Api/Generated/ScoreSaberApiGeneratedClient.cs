@@ -87,7 +87,7 @@ namespace ScoreSaber.Core.Api.Generated
                 using (var request_ = new System.Net.Http.HttpRequestMessage())
                 {
                     var json_ = Newtonsoft.Json.JsonConvert.SerializeObject(body, JsonSerializerSettings);
-                    var content_ = new System.Net.Http.StringContent(json_);
+                    var content_ = ScoreSaber.Core.Api.ApiRequestContentPreparation.Create(json_);
                     content_.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
                     request_.Content = content_;
                     request_.Method = new System.Net.Http.HttpMethod("POST");
@@ -170,7 +170,7 @@ namespace ScoreSaber.Core.Api.Generated
                         throw new System.ArgumentNullException("authorization");
                     request_.Headers.TryAddWithoutValidation("Authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
                     var json_ = Newtonsoft.Json.JsonConvert.SerializeObject(body, JsonSerializerSettings);
-                    var content_ = new System.Net.Http.StringContent(json_);
+                    var content_ = ScoreSaber.Core.Api.ApiRequestContentPreparation.Create(json_);
                     content_.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
                     request_.Content = content_;
                     request_.Method = new System.Net.Http.HttpMethod("POST");

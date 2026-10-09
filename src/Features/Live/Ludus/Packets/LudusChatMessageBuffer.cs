@@ -133,9 +133,11 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             try {
                 List<LiveChatMessage> source = snapshot.Messages;
                 byte[] matchCache = preparedKeys?.CreateMatchCache(currentMatchId);
+                OwnedChatMatchResults matchResults = preparedKeys == null && Thread.CurrentThread.ManagedThreadId == _ownerThread
+                    ? OwnedChatMatchResults.Prepare(source, currentMatchId) : null;
                 int position = 0;
                 foreach (LiveChatMessage message in source) {
-                    LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId, preparedKeys, source, position, matchCache);
+                    LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId, preparedKeys, source, position, matchCache, matchResults);
                     if (entry != null) {
                         int hash = 0;
                         string key = null;
@@ -212,12 +214,18 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
 
         private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId,
             OwnedChatKeyPreparation preparedKeys, List<LiveChatMessage> source, int position, byte[] matchCache) {
+            return EntryForCurrentMatch(message, currentMatchId, preparedKeys, source, position, matchCache, null);
+        }
+
+        private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId,
+            OwnedChatKeyPreparation preparedKeys, List<LiveChatMessage> source, int position, byte[] matchCache, OwnedChatMatchResults matchResults) {
             if (message == null || string.IsNullOrEmpty(message.MatchId)) {
                 return null;
             }
             string matchId = message.MatchId;
             bool matches;
-            if (preparedKeys == null || !preparedKeys.TryMatches(source, position, message, matchId, currentMatchId, matchCache, out matches)) {
+            if ((matchResults == null || !matchResults.TryGet(source, position, message, matchId, out matches))
+                && (preparedKeys == null || !preparedKeys.TryMatches(source, position, message, matchId, currentMatchId, matchCache, out matches))) {
                 matches = string.Equals(matchId, currentMatchId, StringComparison.Ordinal);
             }
             return matches ? LiveChatEntry.FromProto(message) : null;

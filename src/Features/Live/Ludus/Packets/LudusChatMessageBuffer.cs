@@ -1,12 +1,18 @@
 using ScoreSaber.Features.Live.Ludus.Domain;
 using ScoreSaber.Live.V1;
+using ScoreSaber.Features.Replays;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Runtime.ExceptionServices;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ScoreSaber.Features.Live.Ludus.Packets {
     internal sealed class LudusChatMessageBuffer {
         private const int MaxMessages = 200;
         private readonly List<LiveChatEntry> _messages = new List<LiveChatEntry>();
+        private readonly int _ownerThread = Thread.CurrentThread.ManagedThreadId;
 
         internal IReadOnlyList<LiveChatEntry> CurrentMessages => _messages.ToArray();
 
@@ -75,9 +81,58 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private void SortAndTrim() {
-            _messages.Sort(CompareEntries);
+            if (!TrySortLargeOwnedBuffer()) {
+                _messages.Sort(CompareEntries);
+            }
             if (_messages.Count > MaxMessages) {
                 _messages.RemoveRange(0, _messages.Count - MaxMessages);
+            }
+        }
+
+        private bool TrySortLargeOwnedBuffer() {
+            if (_messages.Count < 4096 || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
+                return false;
+            }
+
+            Task<ExceptionDispatchInfo> task = null;
+            try {
+                CultureInfo culture = CultureInfo.CurrentCulture;
+                if (culture.GetType() != typeof(CultureInfo) || !culture.IsReadOnly
+                    || culture.NumberFormat.GetType() != typeof(NumberFormatInfo) || !culture.NumberFormat.IsReadOnly) {
+                    return false;
+                }
+                CultureInfo ownedCulture = CultureInfo.ReadOnly((CultureInfo)culture.Clone());
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => SortOwnedBuffer(ownedCulture), out task)) {
+                    return false;
+                }
+            } catch {
+                if (task == null) {
+                    return false;
+                }
+            }
+
+            // Keep the private list exclusively leased until the physical sort completes.
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            task.GetAwaiter().GetResult()?.Throw();
+            return true;
+        }
+
+        private ExceptionDispatchInfo SortOwnedBuffer(CultureInfo culture) {
+            CultureInfo previous = CultureInfo.CurrentCulture;
+            try {
+                CultureInfo.CurrentCulture = culture;
+                try {
+                    _messages.Sort(CompareEntries);
+                    return null;
+                } catch (Exception error) {
+                    return ExceptionDispatchInfo.Capture(error);
+                }
+            } finally {
+                CultureInfo.CurrentCulture = previous;
             }
         }
 

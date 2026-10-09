@@ -127,6 +127,32 @@ namespace ScoreSaber.Features.Replays {
             }
         }
 
+        internal static bool TryQueueOwnedPreparationWhenIdle<T>(Func<T> prepare, out Task<T> task) {
+            task = null;
+            try {
+                lock (PreparationLock) {
+                    if (!_preparationTail.IsCompleted) {
+                        return false;
+                    }
+
+                    if (ExecutionContext.IsFlowSuppressed()) {
+                        task = Task.Factory.StartNew(prepare, CancellationToken.None,
+                            TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+                        _preparationTail = task;
+                    } else {
+                        using (ExecutionContext.SuppressFlow()) {
+                            task = Task.Factory.StartNew(prepare, CancellationToken.None,
+                                TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+                            _preparationTail = task;
+                        }
+                    }
+                    return true;
+                }
+            } catch {
+                return task != null;
+            }
+        }
+
         private static Task<T> QueuePreparationWithoutContext<T>(Func<T> prepare) {
             lock (PreparationLock) {
                 Task<T> task = _preparationTail.ContinueWith(

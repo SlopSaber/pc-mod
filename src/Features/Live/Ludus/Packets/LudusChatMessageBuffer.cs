@@ -90,7 +90,8 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private bool TrySortLargeOwnedBuffer() {
-            if (_messages.Count < 4096 || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
+            if (_messages.Count < 4096 || Thread.CurrentThread.IsThreadPoolThread
+                || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
                 return false;
             }
 

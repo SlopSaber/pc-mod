@@ -10,7 +10,14 @@ namespace ScoreSaber.Features.Live.Protocol {
         internal static bool TryFind(IList<LiveMatchRoomState> rooms, string localPlayerId, out LiveMatchRoomState selected) {
             selected = null;
             if (!(rooms is List<LiveMatchRoomState> list) || list.GetType() != typeof(List<LiveMatchRoomState>)
-                || Thread.CurrentThread.IsThreadPoolThread || !HasMaterialSelection(list, localPlayerId)) {
+                || Thread.CurrentThread.IsThreadPoolThread) {
+                return false;
+            }
+            try {
+                if (!HasMaterialSelection(list, localPlayerId)) {
+                    return false;
+                }
+            } catch {
                 return false;
             }
             return TryFindOwned(list, localPlayerId, out selected);
@@ -33,6 +40,9 @@ namespace ScoreSaber.Features.Live.Protocol {
                     bytes += (long)matchId.Length * sizeof(char);
                 }
                 foreach (string id in room.PlayerIds) {
+                    if (ReferenceEquals(id, localPlayerId)) {
+                        return false;
+                    }
                     if (id != null && !ReferenceEquals(id, localPlayerId) && id.Length == localPlayerId.Length) {
                         bytes += (long)id.Length * sizeof(char);
                     }

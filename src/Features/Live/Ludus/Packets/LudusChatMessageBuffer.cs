@@ -108,7 +108,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
 
         internal bool Apply(LiveChatMessage message, string currentMatchId, OwnedChatMessageMatch preparedMatch) {
             ClearReplaceKeyIndex();
-            LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId, preparedMatch);
+            LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId, preparedMatch, _ownerThread);
             if (entry == null) {
                 return false;
             }
@@ -213,15 +213,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId, OwnedChatMessageMatch preparedMatch) {
-            if (message == null || string.IsNullOrEmpty(message.MatchId)) {
-                return null;
-            }
-            string matchId = message.MatchId;
-            bool matches;
-            if (preparedMatch == null || !preparedMatch.TryGet(message, matchId, currentMatchId, out matches)) {
-                matches = string.Equals(matchId, currentMatchId, StringComparison.Ordinal);
-            }
-            return matches ? LiveChatEntry.FromProto(message) : null;
+            return EntryForCurrentMatch(message, currentMatchId, preparedMatch, 0);
         }
 
         private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId,
@@ -582,6 +574,73 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 return true;
             }
             return ReplayStorageService.TryStartIndependentOwnedPreparation(prepare, out task);
+        }
+
+        private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId,
+            OwnedChatMessageMatch preparedMatch, int ownerThread) {
+            if (message == null || string.IsNullOrEmpty(message.MatchId)) {
+                return null;
+            }
+            string matchId = message.MatchId;
+            bool matches;
+            if (preparedMatch == null || !preparedMatch.TryGet(message, matchId, currentMatchId, out matches)) {
+                if (!TryCompareOwnedMatch(matchId, currentMatchId, ownerThread, out matches)) {
+                    matches = string.Equals(matchId, currentMatchId, StringComparison.Ordinal);
+                }
+            }
+            return matches ? LiveChatEntry.FromProto(message) : null;
+        }
+
+        private static bool TryCompareOwnedMatch(string matchId, string currentMatchId, int ownerThread, out bool matches) {
+            matches = false;
+            if (ownerThread == 0 || Thread.CurrentThread.IsThreadPoolThread
+                || Thread.CurrentThread.ManagedThreadId != ownerThread || matchId == null || currentMatchId == null
+                || ReferenceEquals(matchId, currentMatchId) || matchId.Length != currentMatchId.Length
+                || matchId.Length < 1024 * 1024) {
+                return false;
+            }
+            return TryCompareOwnedMatchCore(matchId, currentMatchId, out matches);
+        }
+
+        private static bool TryCompareOwnedMatchCore(string matchId, string currentMatchId, out bool matches) {
+            matches = false;
+            Task<OwnedMatchResult> task = null;
+            try {
+                if (!TryQueueBufferPreparation(() => CompareOwnedMatch(matchId, currentMatchId), out task)) {
+                    return false;
+                }
+            } catch {
+                if (task == null) {
+                    return false;
+                }
+            }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            OwnedMatchResult result = task.GetAwaiter().GetResult();
+            result.Error?.Throw();
+            matches = result.Matches;
+            return true;
+        }
+
+        private static OwnedMatchResult CompareOwnedMatch(string matchId, string currentMatchId) {
+            try {
+                return new OwnedMatchResult(string.Equals(matchId, currentMatchId, StringComparison.Ordinal), null);
+            } catch (Exception error) {
+                return new OwnedMatchResult(false, ExceptionDispatchInfo.Capture(error));
+            }
+        }
+
+        private sealed class OwnedMatchResult {
+            internal readonly bool Matches;
+            internal readonly ExceptionDispatchInfo Error;
+
+            internal OwnedMatchResult(bool matches, ExceptionDispatchInfo error) {
+                Matches = matches;
+                Error = error;
+            }
         }
     }
 }

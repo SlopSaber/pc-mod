@@ -197,6 +197,9 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                         if (envelope?.Type == LudusEnvelopeType.RoomSnapshot) {
                             envelope.PreparedRooms = OwnedRoomSnapshotPreparation.Prepare(envelope.Rooms);
                         }
+                        if (envelope?.Type == LudusEnvelopeType.ChatSnapshot) {
+                            envelope.PreparedChatKeys = OwnedChatKeyPreparation.Prepare(envelope.ChatSnapshot);
+                        }
                         EnqueueCurrent(connection, () => {
                             if (parseError != null) {
                                 Plugin.Log.Warn($"Failed to parse ludus protobuf frame: {parseError}");

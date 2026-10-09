@@ -13,7 +13,11 @@ namespace ScoreSaber.Features.Live.Ludus.Packets.Handlers {
         public LudusEnvelopeType Type => LudusEnvelopeType.ChatSnapshot;
 
         public void Handle(TSession session, DecodedLudusEnvelope envelope) {
-            _messages.Replace(envelope.ChatSnapshot, session.CurrentLudusMatchId);
+            try {
+                _messages.Replace(envelope.ChatSnapshot, session.CurrentLudusMatchId, envelope.PreparedChatKeys);
+            } finally {
+                envelope.PreparedChatKeys = null;
+            }
             session.NotifyChatMessagesChanged(_messages.MessagesFor(session.CurrentLudusMatchId));
         }
     }

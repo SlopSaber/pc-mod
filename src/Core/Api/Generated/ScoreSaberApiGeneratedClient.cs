@@ -299,7 +299,7 @@ namespace ScoreSaber.Core.Api.Generated
                         throw new System.ArgumentNullException("data");
                     else
                     {
-                        content_.Add(new System.Net.Http.StringContent(ConvertToString(data, System.Globalization.CultureInfo.InvariantCulture)), "data");
+                        content_.Add(ScoreSaber.Core.Api.ApiRequestContentPreparation.Create(ConvertToString(data, System.Globalization.CultureInfo.InvariantCulture)), "data");
                     }
 
                     if (zr == null)

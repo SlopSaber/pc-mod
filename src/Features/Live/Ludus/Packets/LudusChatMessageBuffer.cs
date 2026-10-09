@@ -237,7 +237,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
 
         private void UpsertCore(LiveChatEntry entry, bool prepared, string preparedKey, int hash, int position) {
             bool indexed = TryFindReplaceKey(entry, prepared, preparedKey, hash, position, out int index, out string key);
-            if (!indexed) {
+            if (!indexed && !TryFindOwnedEntry(entry, out index)) {
                 index = _messages.FindIndex(item => item.Key == entry.Key);
             }
             if (index >= 0) {
@@ -473,6 +473,88 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 }
             }
             return false;
+        }
+
+        private bool TryFindOwnedEntry(LiveChatEntry entry, out int index) {
+            index = -1;
+            if (Thread.CurrentThread.IsThreadPoolThread || Thread.CurrentThread.ManagedThreadId != _ownerThread
+                || !HasMaterialFind(entry)) {
+                return false;
+            }
+            return TryFindOwnedEntryCore(entry, out index);
+        }
+
+        private bool HasMaterialFind(LiveChatEntry entry) {
+            if (entry == null || _messages.Count == 0) {
+                return false;
+            }
+            bool entryFallback = string.IsNullOrEmpty(entry.MessageId);
+            long entryLength = entryFallback ? (long)entry.MatchId.Length + 21 : entry.MessageId.Length;
+            long bytes = 0;
+            foreach (LiveChatEntry item in _messages) {
+                if (item == null) {
+                    return false;
+                }
+                bool itemFallback = string.IsNullOrEmpty(item.MessageId);
+                if (!itemFallback && !entryFallback && ReferenceEquals(item.MessageId, entry.MessageId)) {
+                    return false;
+                }
+                long itemLength = itemFallback ? (long)item.MatchId.Length + 21 : item.MessageId.Length;
+                if (itemFallback) {
+                    bytes += itemLength * sizeof(char);
+                }
+                if (entryFallback) {
+                    bytes += entryLength * sizeof(char);
+                }
+                if (itemLength == entryLength) {
+                    bytes += itemLength * sizeof(char);
+                }
+                if (bytes >= 1024 * 1024) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private bool TryFindOwnedEntryCore(LiveChatEntry entry, out int index) {
+            index = -1;
+            Task<OwnedFindResult> task = null;
+            try {
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => FindOwnedEntry(entry), out task)) {
+                    return false;
+                }
+            } catch {
+                if (task == null) {
+                    return false;
+                }
+            }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            OwnedFindResult result = task.GetAwaiter().GetResult();
+            result.Error?.Throw();
+            index = result.Index;
+            return true;
+        }
+
+        private OwnedFindResult FindOwnedEntry(LiveChatEntry entry) {
+            try {
+                return new OwnedFindResult(_messages.FindIndex(item => item.Key == entry.Key), null);
+            } catch (Exception error) {
+                return new OwnedFindResult(-1, ExceptionDispatchInfo.Capture(error));
+            }
+        }
+
+        private sealed class OwnedFindResult {
+            internal readonly int Index;
+            internal readonly ExceptionDispatchInfo Error;
+
+            internal OwnedFindResult(int index, ExceptionDispatchInfo error) {
+                Index = index;
+                Error = error;
+            }
         }
     }
 }

@@ -1825,11 +1825,15 @@ namespace ScoreSaber.Core.Api.Generated
                 {
                     using (var responseStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
                     using (var streamReader = new System.IO.StreamReader(responseStream))
-                    using (var jsonTextReader = new Newtonsoft.Json.JsonTextReader(streamReader))
                     {
-                        var serializer = Newtonsoft.Json.JsonSerializer.Create(JsonSerializerSettings);
-                        var typedBody = serializer.Deserialize<T>(jsonTextReader);
-                        return new ObjectResponseResult<T>(typedBody, string.Empty);
+                        var textReader = ScoreSaber.Core.Api.ApiResponseReadPreparation.WrapReader(streamReader, response.Content);
+                        using (var jsonTextReader = new Newtonsoft.Json.JsonTextReader(textReader))
+                        {
+                            ScoreSaber.Core.Api.ApiResponseReadPreparation.AttachReader(textReader, jsonTextReader);
+                            var serializer = Newtonsoft.Json.JsonSerializer.Create(JsonSerializerSettings);
+                            var typedBody = serializer.Deserialize<T>(jsonTextReader);
+                            return new ObjectResponseResult<T>(typedBody, string.Empty);
+                        }
                     }
                 }
                 catch (Newtonsoft.Json.JsonException exception)

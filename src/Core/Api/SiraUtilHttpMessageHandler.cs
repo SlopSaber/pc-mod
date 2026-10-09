@@ -21,14 +21,16 @@ namespace ScoreSaber.Core.Api {
             var headers = GetHeaders(request);
 
             Plugin.Log.Debug($"ScoreSaber API {request.Method} {request.RequestUri.AbsolutePath}");
-            IHttpResponse siraResponse = await _httpService.SendAsync(
+            bool nativeResponse;
+            IHttpResponse siraResponse = await ApiResponseReadPreparation.Send(
+                _httpService,
                 ToMethod(request.Method),
                 request.RequestUri.ToString(),
                 RequestTimeoutSeconds,
                 body,
                 headers,
-                null,
-                cancellationToken);
+                cancellationToken,
+                out nativeResponse);
 
             if (siraResponse == null) {
                 Plugin.Log.Debug($"ScoreSaber API {request.RequestUri.AbsolutePath} completed: no response");
@@ -42,7 +44,7 @@ namespace ScoreSaber.Core.Api {
 
             byte[] responseBody = await ReadResponseBody(siraResponse);
 
-            HttpResponseMessage response = CreateResponse(request, siraResponse.Code, responseBody);
+            HttpResponseMessage response = CreateResponse(request, siraResponse.Code, responseBody, siraResponse, nativeResponse);
             CopyHeaders(response, siraResponse);
             return response;
         }
@@ -50,6 +52,14 @@ namespace ScoreSaber.Core.Api {
         private static HttpResponseMessage CreateResponse(HttpRequestMessage request, int statusCode, byte[] responseBody) {
             return new HttpResponseMessage(GetStatusCode(statusCode)) {
                 Content = new ByteArrayContent(responseBody),
+                RequestMessage = request
+            };
+        }
+
+        private static HttpResponseMessage CreateResponse(HttpRequestMessage request, int statusCode, byte[] responseBody,
+            IHttpResponse source, bool nativeResponse) {
+            return new HttpResponseMessage(GetStatusCode(statusCode)) {
+                Content = ApiResponseReadPreparation.CreateContent(responseBody, source, nativeResponse),
                 RequestMessage = request
             };
         }

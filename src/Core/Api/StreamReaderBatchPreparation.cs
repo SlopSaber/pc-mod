@@ -16,6 +16,7 @@ namespace ScoreSaber.Core.Api {
             internal readonly char[] Characters;
             internal readonly int Count;
             internal readonly bool Blocked;
+            internal int InitialCopyCount;
 
             internal Batch(StreamReader reader, char[] characters, int count, bool blocked) {
                 Reader = reader;
@@ -25,7 +26,7 @@ namespace ScoreSaber.Core.Api {
             }
         }
 
-        internal static bool TryPrepare(StreamReader reader, out Batch batch) {
+        internal static bool TryPrepare(StreamReader reader, char[] destination, int destinationIndex, int destinationCount, out Batch batch) {
             batch = null;
             StreamReader candidate = null;
             Task<Batch> task = null;
@@ -33,7 +34,7 @@ namespace ScoreSaber.Core.Api {
                 if (!TryClone(reader, out candidate)) {
                     return false;
                 }
-                TryQueue(candidate, out task);
+                TryQueue(candidate, destination, destinationIndex, destinationCount, out task);
             } catch { }
             if (task == null) {
                 Discard(candidate);
@@ -107,13 +108,13 @@ namespace ScoreSaber.Core.Api {
             return true;
         }
 
-        private static bool TryQueue(StreamReader reader, out Task<Batch> task) {
-            Func<Batch> prepare = () => Prepare(reader);
+        private static bool TryQueue(StreamReader reader, char[] destination, int destinationIndex, int destinationCount, out Task<Batch> task) {
+            Func<Batch> prepare = () => Prepare(reader, destination, destinationIndex, destinationCount);
             return ReplayStorageService.TryQueueOwnedPreparationWhenIdle(prepare, out task)
                 || ReplayStorageService.TryStartIndependentOwnedPreparation(prepare, out task);
         }
 
-        private static Batch Prepare(StreamReader reader) {
+        private static Batch Prepare(StreamReader reader, char[] destination, int destinationIndex, int destinationCount) {
             char[] current = (char[])Schema.CharBuffer.GetValue(reader);
             char[] characters = new char[BatchSize + current.Length];
             int count = reader.Read(characters, 0, BatchSize);
@@ -124,7 +125,13 @@ namespace ScoreSaber.Core.Api {
                     count += reader.Read(characters, count, remaining);
                 }
             }
-            return new Batch(reader, characters, count, blocked);
+            Batch batch = new Batch(reader, characters, count, blocked);
+            int copyCount = Math.Min(destinationCount, count);
+            if (destination != null && copyCount >= 128 * 1024) {
+                Array.Copy(characters, 0, destination, destinationIndex, copyCount);
+                batch.InitialCopyCount = copyCount;
+            }
+            return batch;
         }
 
         private static class Schema {

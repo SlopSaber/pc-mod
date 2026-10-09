@@ -100,7 +100,11 @@ namespace ScoreSaber.Core.Api {
                             }
                             continue;
                         }
-                        if (TryPrepareBatch()) {
+                        if (TryPrepareBatch(buffer, index + copied, count - copied, out int preparedCopy, out bool preparedBlocked)) {
+                            copied += preparedCopy;
+                            if (preparedBlocked) {
+                                return copied;
+                            }
                             continue;
                         }
                         int remaining = count - copied;
@@ -117,7 +121,9 @@ namespace ScoreSaber.Core.Api {
             private static bool ValidRange(char[] buffer, int index, int count) =>
                 buffer != null && index >= 0 && count >= 0 && count <= buffer.Length - index;
 
-            private bool TryPrepareBatch() {
+            private bool TryPrepareBatch(char[] buffer, int index, int count, out int copied, out bool blocked) {
+                copied = 0;
+                blocked = false;
                 if (Thread.CurrentThread.IsThreadPoolThread || Thread.CurrentThread.ManagedThreadId != _ownerThread
                     || _jsonReader == null || _jsonReader.ArrayPool != null) {
                     return false;
@@ -129,17 +135,37 @@ namespace ScoreSaber.Core.Api {
                 } catch {
                     return false;
                 }
-                if (!StreamReaderBatchPreparation.TryPrepare(_activeReader, out var batch)) {
+                char[] destination = CanCopyInitialBatch(buffer, index, count) ? buffer : null;
+                if (!StreamReaderBatchPreparation.TryPrepare(_activeReader, destination, index, count, out var batch)) {
                     return false;
                 }
                 StreamReader previous = _activeReader;
                 _activeReader = batch.Reader;
                 _batch = batch;
-                _batchPosition = 0;
+                copied = batch.InitialCopyCount;
+                _batchPosition = copied;
+                blocked = copied == batch.Count && batch.Blocked;
+                if (copied == batch.Count) {
+                    _batch = null;
+                }
                 if (!ReferenceEquals(previous, _reader)) {
                     StreamReaderBatchPreparation.Discard(previous);
                 }
                 return true;
+            }
+
+            private bool CanCopyInitialBatch(char[] buffer, int index, int count) {
+                if (count < 128 * 1024 || !ValidRange(buffer, index, count)) {
+                    return false;
+                }
+                try {
+                    return _jsonReader != null && _jsonReader.GetType() == typeof(JsonTextReader)
+                        && typeof(JsonTextReader).Module.ModuleVersionId == new Guid("8b49fe53-8c3d-48f9-b341-caeedeff32a2")
+                        && ReferenceEquals(typeof(JsonTextReader).GetField("_chars", BindingFlags.Instance | BindingFlags.NonPublic)
+                            ?.GetValue(_jsonReader), buffer);
+                } catch {
+                    return false;
+                }
             }
 
             private int CopyBatch(char[] buffer, int index, int count, out bool blocked) {

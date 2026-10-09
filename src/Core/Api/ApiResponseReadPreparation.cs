@@ -69,11 +69,16 @@ namespace ScoreSaber.Core.Api {
 
         private sealed class OwnedBlockReader : TextReader {
             private readonly StreamReader _reader;
+            private readonly object _gate = new object();
             private readonly int _ownerThread = Thread.CurrentThread.ManagedThreadId;
             private JsonTextReader _jsonReader;
+            private StreamReader _activeReader;
+            private StreamReaderBatchPreparation.Batch _batch;
+            private int _batchPosition;
 
             internal OwnedBlockReader(StreamReader reader) {
                 _reader = reader;
+                _activeReader = reader;
             }
 
             internal void Attach(JsonTextReader reader) {
@@ -81,8 +86,69 @@ namespace ScoreSaber.Core.Api {
             }
 
             public override int Read(char[] buffer, int index, int count) {
-                if (!CanLease(buffer, index, count) || !TryReadOwned(_reader, buffer, index, count, out int read)) {
-                    return _reader.Read(buffer, index, count);
+                lock (_gate) {
+                    if (!ValidRange(buffer, index, count)) {
+                        return _activeReader.Read(buffer, index, count);
+                    }
+                    _activeReader.Read(buffer, index, 0);
+                    int copied = 0;
+                    while (copied < count) {
+                        if (_batch != null) {
+                            copied += CopyBatch(buffer, index + copied, count - copied, out bool blocked);
+                            if (blocked) {
+                                return copied;
+                            }
+                            continue;
+                        }
+                        if (TryPrepareBatch()) {
+                            continue;
+                        }
+                        int remaining = count - copied;
+                        if (!CanLease(buffer, index + copied, remaining)
+                            || !TryReadOwned(_activeReader, buffer, index + copied, remaining, out int read)) {
+                            read = _activeReader.Read(buffer, index + copied, remaining);
+                        }
+                        return copied + read;
+                    }
+                    return copied;
+                }
+            }
+
+            private static bool ValidRange(char[] buffer, int index, int count) =>
+                buffer != null && index >= 0 && count >= 0 && count <= buffer.Length - index;
+
+            private bool TryPrepareBatch() {
+                if (Thread.CurrentThread.IsThreadPoolThread || Thread.CurrentThread.ManagedThreadId != _ownerThread
+                    || _jsonReader == null || _jsonReader.ArrayPool != null) {
+                    return false;
+                }
+                try {
+                    if (_activeReader.BaseStream.Length - _activeReader.BaseStream.Position < 256 * 1024) {
+                        return false;
+                    }
+                } catch {
+                    return false;
+                }
+                if (!StreamReaderBatchPreparation.TryPrepare(_activeReader, out var batch)) {
+                    return false;
+                }
+                StreamReader previous = _activeReader;
+                _activeReader = batch.Reader;
+                _batch = batch;
+                _batchPosition = 0;
+                if (!ReferenceEquals(previous, _reader)) {
+                    StreamReaderBatchPreparation.Discard(previous);
+                }
+                return true;
+            }
+
+            private int CopyBatch(char[] buffer, int index, int count, out bool blocked) {
+                int read = Math.Min(count, _batch.Count - _batchPosition);
+                Array.Copy(_batch.Characters, _batchPosition, buffer, index, read);
+                _batchPosition += read;
+                blocked = _batchPosition == _batch.Count && _batch.Blocked;
+                if (_batchPosition == _batch.Count) {
+                    _batch = null;
                 }
                 return read;
             }
@@ -94,21 +160,65 @@ namespace ScoreSaber.Core.Api {
                 }
                 try {
                     return _jsonReader != null && _jsonReader.ArrayPool == null
-                        && _reader.BaseStream.Length - _reader.BaseStream.Position >= 1024 * 1024;
+                        && _activeReader.BaseStream.Length - _activeReader.BaseStream.Position >= 1024 * 1024;
                 } catch {
                     return false;
                 }
             }
 
-            public override int Read() => _reader.Read();
-            public override int Peek() => _reader.Peek();
-            public override Task<int> ReadAsync(char[] buffer, int index, int count) => _reader.ReadAsync(buffer, index, count);
+            public override int Read() {
+                lock (_gate) {
+                    if (_batch != null && _batchPosition == _batch.Count) {
+                        _batch = null;
+                    }
+                    if (_batch == null) {
+                        return _activeReader.Read();
+                    }
+                    int value = _batchPosition < _batch.Count ? _batch.Characters[_batchPosition++] : -1;
+                    if (_batchPosition == _batch.Count) {
+                        _batch = null;
+                    }
+                    return value;
+                }
+            }
+
+            public override int Peek() {
+                lock (_gate) {
+                    return _batch != null && _batchPosition < _batch.Count
+                        ? _batch.Characters[_batchPosition] : _activeReader.Peek();
+                }
+            }
+
+            public override Task<int> ReadAsync(char[] buffer, int index, int count) {
+                lock (_gate) {
+                    if (_batch == null || !ValidRange(buffer, index, count) || _activeReader.BaseStream == null
+                        || StreamReaderBatchPreparation.IsAsyncBusy(_activeReader)) {
+                        return _activeReader.ReadAsync(buffer, index, count);
+                    }
+                    return ReadCachedAsync(buffer, index, count);
+                }
+            }
+
+            private async Task<int> ReadCachedAsync(char[] buffer, int index, int count) {
+                int copied = CopyBatch(buffer, index, count, out bool blocked);
+                if (blocked || copied == count) {
+                    return copied;
+                }
+                int read = await _activeReader.ReadAsync(buffer, index + copied, count - copied).ConfigureAwait(false);
+                return copied + read;
+            }
 
             protected override void Dispose(bool disposing) {
-                if (disposing) {
-                    _reader.Dispose();
+                lock (_gate) {
+                    if (disposing) {
+                        _batch = null;
+                        if (!ReferenceEquals(_activeReader, _reader)) {
+                            StreamReaderBatchPreparation.Discard(_activeReader);
+                        }
+                        _reader.Dispose();
+                    }
+                    base.Dispose(disposing);
                 }
-                base.Dispose(disposing);
             }
         }
 

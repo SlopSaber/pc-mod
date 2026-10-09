@@ -1826,7 +1826,7 @@ namespace ScoreSaber.Core.Api.Generated
                     using (var responseStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
                     using (var streamReader = new System.IO.StreamReader(responseStream))
                     {
-                        var textReader = ScoreSaber.Core.Api.ApiResponseReadPreparation.WrapReader(streamReader, response.Content);
+                        using (var textReader = ScoreSaber.Core.Api.ApiResponseReadPreparation.WrapReader(streamReader, response.Content))
                         using (var jsonTextReader = new Newtonsoft.Json.JsonTextReader(textReader))
                         {
                             ScoreSaber.Core.Api.ApiResponseReadPreparation.AttachReader(textReader, jsonTextReader);

@@ -604,9 +604,9 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
 
         private static bool TryCompareOwnedMatchCore(string matchId, string currentMatchId, out bool matches) {
             matches = false;
-            Task<OwnedMatchResult> task = null;
+            Task<bool> task = null;
             try {
-                if (!TryQueueBufferPreparation(() => CompareOwnedMatch(matchId, currentMatchId), out task)) {
+                if (!TryQueueOwnedMatch(matchId, currentMatchId, out task)) {
                     return false;
                 }
             } catch {
@@ -619,28 +619,12 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 catch (ThreadInterruptedException) { }
                 catch (AggregateException) { }
             }
-            OwnedMatchResult result = task.GetAwaiter().GetResult();
-            result.Error?.Throw();
-            matches = result.Matches;
+            matches = task.GetAwaiter().GetResult();
             return true;
         }
 
-        private static OwnedMatchResult CompareOwnedMatch(string matchId, string currentMatchId) {
-            try {
-                return new OwnedMatchResult(string.Equals(matchId, currentMatchId, StringComparison.Ordinal), null);
-            } catch (Exception error) {
-                return new OwnedMatchResult(false, ExceptionDispatchInfo.Capture(error));
-            }
-        }
-
-        private sealed class OwnedMatchResult {
-            internal readonly bool Matches;
-            internal readonly ExceptionDispatchInfo Error;
-
-            internal OwnedMatchResult(bool matches, ExceptionDispatchInfo error) {
-                Matches = matches;
-                Error = error;
-            }
+        private static bool TryQueueOwnedMatch(string matchId, string currentMatchId, out Task<bool> task) {
+            return TryQueueBufferPreparation(() => string.Equals(matchId, currentMatchId, StringComparison.Ordinal), out task);
         }
     }
 }

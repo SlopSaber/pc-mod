@@ -44,10 +44,18 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
             var players = new List<CompetePlayer>();
             bool localReady = false;
 
-            foreach (CompetePlayer player in session.TournamentRoom.Players) {
+            IReadOnlyList<CompetePlayer> roster = session.TournamentRoom.Players;
+            OwnedRoomRosterLookup lookup = OwnedRoomRosterLookup.Prepare(roster, states, activePlayerIds);
+            int position = 0;
+            foreach (CompetePlayer player in roster) {
                 LiveRoomPlayerState state;
-                bool hasState = states.TryGetValue(player.PlayerId, out state);
-                bool isActive = hasState || (!string.IsNullOrEmpty(player.PlayerId) && activePlayerIds.Contains(player.PlayerId));
+                bool hasState;
+                bool isActive;
+                if (lookup == null || !lookup.TryGet(position, player, out state, out hasState, out isActive)) {
+                    hasState = states.TryGetValue(player.PlayerId, out state);
+                    isActive = hasState || (!string.IsNullOrEmpty(player.PlayerId) && activePlayerIds.Contains(player.PlayerId));
+                }
+                position++;
                 if (!hasState) {
                     if (player.IsLocalPlayer && isActive) {
                         localReady = session.TournamentRoom.LocalPlayerReady;

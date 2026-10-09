@@ -95,6 +95,10 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 return false;
             }
 
+            return TrySortOwnedBuffer();
+        }
+
+        private bool TrySortOwnedBuffer() {
             Task<ExceptionDispatchInfo> task = null;
             try {
                 CultureInfo culture = CultureInfo.CurrentCulture;

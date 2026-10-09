@@ -240,8 +240,9 @@ namespace ScoreSaber.Features.Live.Protocol {
         private static void FillOwnedMatchCache(string[] groupIds, string currentMatchId, byte[] cache) {
             Task<bool> task = null;
             try {
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
-                    () => FillMatchCache(groupIds, currentMatchId, cache), out task)) {
+                Func<bool> prepare = () => FillMatchCache(groupIds, currentMatchId, cache);
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(prepare, out task)
+                    && !ReplayStorageService.TryStartIndependentOwnedPreparation(prepare, out task)) {
                     return;
                 }
             } catch {

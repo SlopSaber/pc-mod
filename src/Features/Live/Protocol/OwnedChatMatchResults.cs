@@ -67,7 +67,9 @@ namespace ScoreSaber.Features.Live.Protocol {
                     }
                     matchIds[i] = message?.MatchId;
                 }
-                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => CompareMatches(matchIds, currentMatchId), out task)) {
+                Func<bool[]> prepare = () => CompareMatches(matchIds, currentMatchId);
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(prepare, out task)
+                    && !ReplayStorageService.TryStartIndependentOwnedPreparation(prepare, out task)) {
                     return null;
                 }
             } catch {

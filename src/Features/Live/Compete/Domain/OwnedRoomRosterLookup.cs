@@ -22,7 +22,7 @@ namespace ScoreSaber.Features.Live.Compete.Domain {
         internal static OwnedRoomRosterLookup Prepare(IReadOnlyList<CompetePlayer> players,
             Dictionary<string, LiveRoomPlayerState> states, HashSet<string> activeIds) {
             if (!(players is CompetePlayer[] array) || array.GetType() != typeof(CompetePlayer[])
-                || array.Length < 4096 || Thread.CurrentThread.IsThreadPoolThread) {
+                || Thread.CurrentThread.IsThreadPoolThread || !HasMaterialLookup(array)) {
                 return null;
             }
             return PrepareOwned(array, states, activeIds);
@@ -84,6 +84,23 @@ namespace ScoreSaber.Features.Live.Compete.Domain {
             hasState = _hasStates[position];
             isActive = _active[position];
             return true;
+        }
+
+        private static bool HasMaterialLookup(CompetePlayer[] players) {
+            if (players.Length >= 4096) {
+                return true;
+            }
+            long bytes = 0;
+            foreach (CompetePlayer player in players) {
+                if (player == null || player.GetType() != typeof(CompetePlayer) || player.PlayerId == null) {
+                    return false;
+                }
+                bytes += (long)player.PlayerId.Length * sizeof(char);
+                if (bytes >= 1024 * 1024) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

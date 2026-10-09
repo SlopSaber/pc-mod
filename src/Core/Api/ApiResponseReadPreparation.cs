@@ -186,6 +186,7 @@ namespace ScoreSaber.Core.Api {
                 }
                 try {
                     return _jsonReader != null && _jsonReader.ArrayPool == null
+                        && CanCopyInitialBatch(buffer, index, count)
                         && _activeReader.BaseStream.Length - _activeReader.BaseStream.Position >= 1024 * 1024;
                 } catch {
                     return false;

@@ -59,9 +59,10 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             _replaceIndexAttempted = false;
             try {
                 List<LiveChatMessage> source = snapshot.Messages;
+                byte[] matchCache = preparedKeys?.CreateMatchCache();
                 int position = 0;
                 foreach (LiveChatMessage message in source) {
-                    LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId);
+                    LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId, preparedKeys, source, position, matchCache);
                     if (entry != null) {
                         int hash = 0;
                         bool prepared = preparedKeys != null && preparedKeys.TryGetHash(source, position, message, entry.MessageId, out hash);
@@ -93,6 +94,19 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
             }
 
             return LiveChatEntry.FromProto(message);
+        }
+
+        private static LiveChatEntry EntryForCurrentMatch(LiveChatMessage message, string currentMatchId,
+            OwnedChatKeyPreparation preparedKeys, List<LiveChatMessage> source, int position, byte[] matchCache) {
+            if (message == null || string.IsNullOrEmpty(message.MatchId)) {
+                return null;
+            }
+            string matchId = message.MatchId;
+            bool matches;
+            if (preparedKeys == null || !preparedKeys.TryMatches(source, position, message, matchId, currentMatchId, matchCache, out matches)) {
+                matches = string.Equals(matchId, currentMatchId, StringComparison.Ordinal);
+            }
+            return matches ? LiveChatEntry.FromProto(message) : null;
         }
 
         private void Upsert(LiveChatEntry entry) {

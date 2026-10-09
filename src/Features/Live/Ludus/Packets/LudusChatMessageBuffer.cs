@@ -13,6 +13,10 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         private const int MaxMessages = 200;
         private readonly List<LiveChatEntry> _messages = new List<LiveChatEntry>();
         private readonly int _ownerThread = Thread.CurrentThread.ManagedThreadId;
+        private Dictionary<string, int> _replaceKeyIndex;
+        private CultureInfo _replaceKeyCulture;
+        private bool _replaceIndexAllowed;
+        private bool _replaceIndexAttempted;
 
         internal IReadOnlyList<LiveChatEntry> CurrentMessages => _messages.ToArray();
 
@@ -25,6 +29,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         internal bool Apply(LiveChatMessage message, string currentMatchId) {
+            ClearReplaceKeyIndex();
             LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId);
             if (entry == null) {
                 return false;
@@ -44,14 +49,21 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 return;
             }
 
-            foreach (LiveChatMessage message in snapshot.Messages) {
-                LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId);
-                if (entry != null) {
-                    Upsert(entry);
+            _replaceIndexAllowed = true;
+            _replaceIndexAttempted = false;
+            try {
+                foreach (LiveChatMessage message in snapshot.Messages) {
+                    LiveChatEntry entry = EntryForCurrentMatch(message, currentMatchId);
+                    if (entry != null) {
+                        Upsert(entry);
+                    }
                 }
-            }
 
-            SortAndTrim();
+                SortAndTrim();
+            } finally {
+                _replaceIndexAllowed = false;
+                ClearReplaceKeyIndex();
+            }
         }
 
         internal bool Clear() {
@@ -59,6 +71,7 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
                 return false;
             }
 
+            ClearReplaceKeyIndex();
             _messages.Clear();
             return true;
         }
@@ -72,20 +85,113 @@ namespace ScoreSaber.Features.Live.Ludus.Packets {
         }
 
         private void Upsert(LiveChatEntry entry) {
-            int index = _messages.FindIndex(item => item.Key == entry.Key);
+            bool indexed = TryFindReplaceKey(entry, out int index, out string key);
+            if (!indexed) {
+                index = _messages.FindIndex(item => item.Key == entry.Key);
+            }
             if (index >= 0) {
                 _messages[index] = entry;
             } else {
+                index = _messages.Count;
                 _messages.Add(entry);
+            }
+            if (indexed) {
+                try { _replaceKeyIndex[key] = index; }
+                catch { ClearReplaceKeyIndex(); }
             }
         }
 
         private void SortAndTrim() {
+            ClearReplaceKeyIndex();
             if (!TrySortLargeOwnedBuffer()) {
                 _messages.Sort(CompareEntries);
             }
             if (_messages.Count > MaxMessages) {
                 _messages.RemoveRange(0, _messages.Count - MaxMessages);
+            }
+        }
+
+        private void ClearReplaceKeyIndex() {
+            _replaceKeyIndex = null;
+            _replaceKeyCulture = null;
+        }
+
+        private bool TryFindReplaceKey(LiveChatEntry entry, out int index, out string key) {
+            index = -1;
+            key = null;
+            if (!_replaceIndexAllowed || Thread.CurrentThread.IsThreadPoolThread
+                || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
+                return false;
+            }
+            if (_replaceKeyIndex == null) {
+                if (_replaceIndexAttempted || _messages.Count < 4096 || Thread.CurrentThread.IsThreadPoolThread
+                    || Thread.CurrentThread.ManagedThreadId != _ownerThread) {
+                    return false;
+                }
+                _replaceIndexAttempted = true;
+                if (!TryBuildReplaceKeyIndex()) {
+                    return false;
+                }
+            }
+            if (!ReferenceEquals(CultureInfo.CurrentCulture, _replaceKeyCulture)) {
+                ClearReplaceKeyIndex();
+                return false;
+            }
+            key = entry.Key;
+            if (!_replaceKeyIndex.TryGetValue(key, out index)) {
+                index = -1;
+            }
+            return true;
+        }
+
+        private bool TryBuildReplaceKeyIndex() {
+            Task<Dictionary<string, int>> task = null;
+            CultureInfo culture;
+            try {
+                culture = CultureInfo.CurrentCulture;
+                if (culture.GetType() != typeof(CultureInfo) || !culture.IsReadOnly
+                    || culture.NumberFormat.GetType() != typeof(NumberFormatInfo) || !culture.NumberFormat.IsReadOnly) {
+                    return false;
+                }
+                CultureInfo ownedCulture = CultureInfo.ReadOnly((CultureInfo)culture.Clone());
+                if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => BuildOwnedKeyIndex(ownedCulture), out task)) {
+                    return false;
+                }
+            } catch {
+                if (task == null) {
+                    return false;
+                }
+                culture = CultureInfo.CurrentCulture;
+            }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            try {
+                _replaceKeyIndex = task.GetAwaiter().GetResult();
+                _replaceKeyCulture = culture;
+                return true;
+            } catch {
+                ClearReplaceKeyIndex();
+                return false;
+            }
+        }
+
+        private Dictionary<string, int> BuildOwnedKeyIndex(CultureInfo culture) {
+            CultureInfo previous = CultureInfo.CurrentCulture;
+            try {
+                CultureInfo.CurrentCulture = culture;
+                var index = new Dictionary<string, int>(_messages.Count, StringComparer.Ordinal);
+                for (int i = 0; i < _messages.Count; i++) {
+                    string key = _messages[i].Key;
+                    if (!index.ContainsKey(key)) {
+                        index.Add(key, i);
+                    }
+                }
+                return index;
+            } finally {
+                CultureInfo.CurrentCulture = previous;
             }
         }
 

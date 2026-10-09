@@ -146,6 +146,13 @@ namespace ScoreSaber.Features.Replays {
                             _preparationTail = task;
                         }
                     }
+                    _ = task.ContinueWith(completed => {
+                        lock (PreparationLock) {
+                            if (ReferenceEquals(_preparationTail, completed)) {
+                                _preparationTail = Task.CompletedTask;
+                            }
+                        }
+                    }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
                     return true;
                 }
             } catch {

@@ -68,6 +68,18 @@ namespace ScoreSaber.Core.Api {
             new TargetRecord("ParseComment", 174, 423, 56, 2, "1200b35cf5e4b44a69eb4f428c0f3d5344ff775b9cb875e4ceecf308a7ed5ca2", typeof(bool)),
         };
 
+        private static bool Matches(string name, Type[] parameters, int bytes, string expected) {
+            MethodInfo method = typeof(JsonTextReader).GetMethod(name,
+                BindingFlags.Instance | BindingFlags.NonPublic, null, parameters, null);
+            byte[] body = method?.GetMethodBody()?.GetILAsByteArray();
+            if (body == null || body.Length != bytes) {
+                return false;
+            }
+            using (SHA256 hash = SHA256.Create()) {
+                return BitConverter.ToString(hash.ComputeHash(body)).Replace("-", "").ToLowerInvariant() == expected;
+            }
+        }
+
         private static bool Prepare() {
             foreach (TargetRecord record in Records) {
                 if (record.Method != null) {
@@ -146,6 +158,12 @@ namespace ScoreSaber.Core.Api {
                     if (typeof(JsonTextReader).Module.ModuleVersionId
                         != new Guid("8b49fe53-8c3d-48f9-b341-caeedeff32a2")
                         || typeof(char).Module.ModuleVersionId != new Guid("41d29b35-2f6a-475a-b1bf-7c6628b82790")) {
+                        return;
+                    }
+                    if (mode == 0 && (!Matches("ValidIdentifierChar", new[] { typeof(char) }, 21,
+                        "809a81a820fd73c2410f631db6ca0ea886f7aa7c55c246a122a4a475ec6b4ad3")
+                        || !Matches("ReadUnquotedPropertyReportIfDone", new[] { typeof(char), typeof(int) }, 94,
+                            "2c1312123da8e3492b76e7dc464c5429802bfe0b6c843de43d38917993d67c0a"))) {
                         return;
                     }
                     MethodInfo method = typeof(JsonTextReader).GetMethod(name,

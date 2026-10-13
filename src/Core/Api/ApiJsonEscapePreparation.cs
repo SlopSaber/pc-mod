@@ -34,14 +34,7 @@ namespace ScoreSaber.Core.Api {
 
             Task<int> task = null;
             try {
-                var ownedFlags = new bool[128];
-                Array.Copy(flags, ownedFlags, ownedFlags.Length);
-                if (FindFirst(text, ownedFlags, handling, 0, PrefixLength) >= 0) {
-                    return false;
-                }
-
-                Func<int> prepare = () => FindFirst(text, ownedFlags, handling, PrefixLength, text.Length);
-                ReplayStorageService.TryQueueOwnedPreparationWhenIdle(prepare, out task);
+                TryQueue(text, flags, handling, out task);
             } catch { }
             if (task == null) {
                 return false;
@@ -59,6 +52,18 @@ namespace ScoreSaber.Core.Api {
             } catch {
                 return false;
             }
+        }
+
+        private static void TryQueue(string text, bool[] flags, StringEscapeHandling handling, out Task<int> task) {
+            task = null;
+            var ownedFlags = new bool[128];
+            Array.Copy(flags, ownedFlags, ownedFlags.Length);
+            if (FindFirst(text, ownedFlags, handling, 0, PrefixLength) >= 0) {
+                return;
+            }
+
+            Func<int> prepare = () => FindFirst(text, ownedFlags, handling, PrefixLength, text.Length);
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(prepare, out task);
         }
 
         private static int FindFirst(string text, bool[] flags, StringEscapeHandling handling, int start, int end) {

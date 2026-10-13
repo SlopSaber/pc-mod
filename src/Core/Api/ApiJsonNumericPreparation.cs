@@ -19,13 +19,21 @@ namespace ScoreSaber.Core.Api {
         [ThreadStatic]
         private static bool _active;
 
+        [ThreadStatic]
+        private static JsonTextReader _reader;
+
+        internal static JsonTextReader CurrentReader => _reader;
+
         internal static T Deserialize<T>(JsonSerializer serializer, JsonReader reader) {
             bool previous = _active;
+            JsonTextReader previousReader = _reader;
             _active = true;
+            _reader = reader?.GetType() == typeof(JsonTextReader) ? (JsonTextReader)reader : null;
             try {
                 return serializer.Deserialize<T>(reader);
             } finally {
                 _active = previous;
+                _reader = previousReader;
             }
         }
 

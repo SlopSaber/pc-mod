@@ -148,9 +148,17 @@ namespace ScoreSaber.Core.Api {
                 if (body == null || body.Length != 63) {
                     return null;
                 }
+                MethodInfo predicate = typeof(JsonTextReader).GetMethod("ReadNumberCharIntoBuffer",
+                    BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { typeof(char), typeof(int) }, null);
+                byte[] predicateBody = predicate?.GetMethodBody()?.GetILAsByteArray();
+                if (predicateBody == null || predicateBody.Length != 246) {
+                    return null;
+                }
                 using (SHA256 hash = SHA256.Create()) {
                     string actual = BitConverter.ToString(hash.ComputeHash(body)).Replace("-", "").ToLowerInvariant();
+                    string actualPredicate = BitConverter.ToString(hash.ComputeHash(predicateBody)).Replace("-", "").ToLowerInvariant();
                     return actual == "4bb2489f64eebf0d774e4147b5e532b0ffc168715e72889aa618216a29afd799"
+                        && actualPredicate == "051a911494c673218a5007122b1442611909fec01cdef845711ac7103e6eed3f"
                         ? method : null;
                 }
             } catch { return null; }

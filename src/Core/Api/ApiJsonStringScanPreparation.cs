@@ -17,7 +17,8 @@ namespace ScoreSaber.Core.Api {
         internal static int Advance(char[] chars, int start, int used) {
             if (!ApiJsonNumericPreparation.IsActive || chars == null || start < 0
                 || used > chars.Length || used - start < MinimumLength
-                || Thread.CurrentThread.IsThreadPoolThread) {
+                || Thread.CurrentThread.IsThreadPoolThread
+                || Scan(chars, start, PrefixLength) != PrefixLength) {
                 return start;
             }
 
@@ -39,9 +40,6 @@ namespace ScoreSaber.Core.Api {
 
         private static void Queue(char[] chars, int start, int length, out Task<int> task) {
             task = null;
-            if (Scan(chars, start, PrefixLength) != PrefixLength) {
-                return;
-            }
             var ownedChars = new char[length];
             Array.Copy(chars, start, ownedChars, 0, length);
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(

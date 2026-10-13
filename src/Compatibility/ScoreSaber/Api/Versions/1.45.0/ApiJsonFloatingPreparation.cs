@@ -1,3 +1,5 @@
+extern alias ScoreSaberCore;
+
 using HarmonyLib;
 using System;
 using System.Globalization;
@@ -6,11 +8,12 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using ScoreSaber.Features.Replays;
+using CoreCharSpan = ScoreSaberCore::System.ReadOnlySpan<char>;
 
 namespace ScoreSaber.Core.Api {
     internal static class ApiJsonFloatingPreparation {
         private const int MinimumTextLength = 512 * 1024;
-        private delegate bool SpanParser(ReadOnlySpan<char> text, NumberStyles styles, NumberFormatInfo info, out double value);
+        private delegate bool SpanParser(CoreCharSpan text, NumberStyles styles, NumberFormatInfo info, out double value);
         private static SpanParser _parser;
 
         internal static bool TryInitialize(MethodInfo method) {
@@ -24,7 +27,7 @@ namespace ScoreSaber.Core.Api {
             }
         }
 
-        internal static bool TryPrepare(ReadOnlySpan<char> text, NumberStyles styles, NumberFormatInfo info,
+        internal static bool TryPrepare(CoreCharSpan text, NumberStyles styles, NumberFormatInfo info,
             ref double value, out bool parsed) {
             parsed = false;
             if (!ApiJsonNumericPreparation.IsActive || text.Length < MinimumTextLength || _parser == null
@@ -56,7 +59,7 @@ namespace ScoreSaber.Core.Api {
             }
         }
 
-        private static void TryQueue(ReadOnlySpan<char> text, NumberStyles styles, NumberFormatInfo info,
+        private static void TryQueue(CoreCharSpan text, NumberStyles styles, NumberFormatInfo info,
             out Task<ParseResult> task) {
             task = null;
             // A span can refer to caller stack storage; retain only its private copy.
@@ -67,7 +70,7 @@ namespace ScoreSaber.Core.Api {
         }
 
         private static ParseResult ParseOwned(char[] chars, NumberStyles styles, NumberFormatInfo info, SpanParser parser) {
-            bool parsed = parser(new ReadOnlySpan<char>(chars), styles, info, out double value);
+            bool parsed = parser(new CoreCharSpan(chars), styles, info, out double value);
             return new ParseResult(parsed, value);
         }
 
@@ -98,7 +101,7 @@ namespace ScoreSaber.Core.Api {
                 }
 
                 MethodInfo method = typeof(double).GetMethod("TryParse", BindingFlags.Static | BindingFlags.NonPublic,
-                    null, new[] { typeof(ReadOnlySpan<char>), typeof(NumberStyles), typeof(NumberFormatInfo), typeof(double).MakeByRefType() }, null);
+                    null, new[] { typeof(CoreCharSpan), typeof(NumberStyles), typeof(NumberFormatInfo), typeof(double).MakeByRefType() }, null);
                 byte[] body = method?.GetMethodBody()?.GetILAsByteArray();
                 if (method == null || method.ReturnType != typeof(bool) || body == null || body.Length != 118) {
                     return null;
@@ -113,7 +116,7 @@ namespace ScoreSaber.Core.Api {
             }
         }
 
-        private static bool Prefix(ReadOnlySpan<char> __0, NumberStyles __1, NumberFormatInfo __2, ref double __3, ref bool __result) {
+        private static bool Prefix(CoreCharSpan __0, NumberStyles __1, NumberFormatInfo __2, ref double __3, ref bool __result) {
             if (!ApiJsonFloatingPreparation.TryPrepare(__0, __1, __2, ref __3, out bool parsed)) {
                 return true;
             }

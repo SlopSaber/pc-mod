@@ -493,6 +493,13 @@
       <IncludeAssets>build; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
+  <Target Name="ScoreSaberSelectCoreSpanReference" BeforeTargets="CoreCompile" Condition="'$(ScoreSaberTargetVersion)' == '1.45.0'">
+    <ItemGroup>
+      <ReferencePathWithRefAssemblies Update="@(ReferencePathWithRefAssemblies)" Condition="'%(Filename)' == 'mscorlib'">
+        <Aliases>global,ScoreSaberCore</Aliases>
+      </ReferencePathWithRefAssemblies>
+    </ItemGroup>
+  </Target>
   <Target Name="ScoreSaberRemoveObsoleteLegatoPolyfills" BeforeTargets="CoreCompile" DependsOnTargets="LegatoAddOptionalSources">
     <PropertyGroup>
       <DefineConstants>$([System.String]::Copy('$(DefineConstants)').Replace('BEAT_SABER_1_42_0;', '').Replace(';BEAT_SABER_1_42_0', '').Replace('BEAT_SABER_1_42_0', ''))</DefineConstants>

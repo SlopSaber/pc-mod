@@ -1831,7 +1831,7 @@ namespace ScoreSaber.Core.Api.Generated
                         {
                             ScoreSaber.Core.Api.ApiResponseReadPreparation.AttachReader(textReader, jsonTextReader);
                             var serializer = Newtonsoft.Json.JsonSerializer.Create(JsonSerializerSettings);
-                            var typedBody = serializer.Deserialize<T>(jsonTextReader);
+                            var typedBody = ScoreSaber.Core.Api.ApiJsonNumericPreparation.Deserialize<T>(serializer, jsonTextReader);
                             return new ObjectResponseResult<T>(typedBody, string.Empty);
                         }
                     }

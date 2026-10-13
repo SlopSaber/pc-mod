@@ -101,6 +101,33 @@ namespace ScoreSaber.Core.Api {
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(prepare, out task);
         }
 
+        internal static bool IsActive => _active;
+
+        internal static IEnumerable<CodeInstruction> PrependPreparation(IEnumerable<CodeInstruction> instructions,
+            ILGenerator generator, Type prepareOwner, string prepareName) {
+            var original = new List<CodeInstruction>(instructions);
+            if (original.Count == 0) {
+                return original;
+            }
+
+            Label fallback = generator.DefineLabel();
+            LocalBuilder status = generator.DeclareLocal(typeof(int));
+            original[0].labels.Add(fallback);
+            var result = new List<CodeInstruction> {
+                new CodeInstruction(OpCodes.Ldarg_0),
+                new CodeInstruction(OpCodes.Ldarg_1),
+                new CodeInstruction(OpCodes.Ldarg_2),
+                new CodeInstruction(OpCodes.Ldarg_3),
+                new CodeInstruction(OpCodes.Ldloca, status),
+                new CodeInstruction(OpCodes.Call, AccessTools.Method(prepareOwner, prepareName)),
+                new CodeInstruction(OpCodes.Brfalse, fallback),
+                new CodeInstruction(OpCodes.Ldloc, status),
+                new CodeInstruction(OpCodes.Ret)
+            };
+            result.AddRange(original);
+            return result;
+        }
+
         private readonly struct DecimalResult {
             internal readonly int Status;
             internal readonly decimal Value;
@@ -147,27 +174,8 @@ namespace ScoreSaber.Core.Api {
         }
 
         private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator) {
-            var original = new List<CodeInstruction>(instructions);
-            if (original.Count == 0) {
-                return original;
-            }
-
-            Label fallback = generator.DefineLabel();
-            LocalBuilder status = generator.DeclareLocal(typeof(int));
-            original[0].labels.Add(fallback);
-            var result = new List<CodeInstruction> {
-                new CodeInstruction(OpCodes.Ldarg_0),
-                new CodeInstruction(OpCodes.Ldarg_1),
-                new CodeInstruction(OpCodes.Ldarg_2),
-                new CodeInstruction(OpCodes.Ldarg_3),
-                new CodeInstruction(OpCodes.Ldloca, status),
-                new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ApiJsonNumericPreparation), nameof(ApiJsonNumericPreparation.TryPrepareDecimal))),
-                new CodeInstruction(OpCodes.Brfalse, fallback),
-                new CodeInstruction(OpCodes.Ldloc, status),
-                new CodeInstruction(OpCodes.Ret)
-            };
-            result.AddRange(original);
-            return result;
+            return ApiJsonNumericPreparation.PrependPreparation(instructions, generator,
+                typeof(ApiJsonNumericPreparation), nameof(ApiJsonNumericPreparation.TryPrepareDecimal));
         }
     }
 }

@@ -98,11 +98,23 @@ namespace ScoreSaber.Core.Api {
                 var methods = new List<MethodBase> {
                     copy, resultConstructor,
                     typeof(CoreCharSpan).GetMethod("CopyTo", new[] { typeof(CoreMutableSpan) }),
+                    typeof(CoreMutableSpan).GetProperty("Length")?.GetGetMethod(),
+                    AccessTools.Method(typeof(Array), "GetRawSzArrayData", Type.EmptyTypes),
                     AccessTools.Method(typeof(string), "wstrcpy", new[] { chars, chars, typeof(int) }),
                     AccessTools.Method(typeof(Buffer), "Memmove", new[] { bytes, bytes, typeof(uint) }),
                     AccessTools.Method(typeof(Buffer), "Memcpy", new[] { bytes, bytes, typeof(int) }),
                     AccessTools.Method(typeof(Buffer), "InternalMemcpy", new[] { bytes, bytes, typeof(int) })
                 };
+                bool foundMove = false;
+                foreach (MethodInfo method in typeof(Buffer).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)) {
+                    if (method.Name == "Memmove" && method.IsGenericMethodDefinition && method.GetGenericArguments().Length == 1
+                        && method.GetParameters().Length == 3) {
+                        methods.Add(method);
+                        methods.Add(method.MakeGenericMethod(typeof(char)));
+                        foundMove = true;
+                    }
+                }
+                if (!foundMove) { return null; }
                 methods.AddRange(typeof(CoreMutableSpan).GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance));
                 foreach (MethodInfo method in typeof(CoreMutableSpan).GetMethods(BindingFlags.Public | BindingFlags.NonPublic
                     | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)) {

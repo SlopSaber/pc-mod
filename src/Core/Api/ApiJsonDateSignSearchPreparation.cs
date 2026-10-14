@@ -59,20 +59,24 @@ namespace ScoreSaber.Core.Api {
 
         private static bool CanLease(char[] chars) {
             try {
-                if (!IsUnchanged()) {
-                    Fresh.Remove(chars);
-                    ApiJsonBufferGrowthPreparation.Revoke(chars);
-                    return false;
-                }
-                if (Fresh.TryGetValue(chars, out _)) { return ApiJsonDateBufferPreparation.CanPrepare(); }
+                if (!IsUnchanged()) { return Reject(chars); }
+                if (Fresh.TryGetValue(chars, out _)) { return ApiJsonDateBufferPreparation.CanPrepare() || Reject(chars); }
                 JsonTextReader reader = ApiJsonNumericPreparation.CurrentReader;
                 if (reader == null || Harmony.GetPatchInfo(PoolGetter) != null || reader.ArrayPool != null
                     || !ApiJsonBufferGrowthPreparation.IsPrivateBuffer(chars)
                     || !HasOnlyPatch(ApiJsonBufferGrowthPreparation.Rent, RentPostfix, false)
-                    || !HasOnlyPatch(ApiJsonBufferGrowthPreparation.Return, ReturnPrefix, true)) { return false; }
+                    || !HasOnlyPatch(ApiJsonBufferGrowthPreparation.Return, ReturnPrefix, true)) { return Reject(chars); }
                 return ReferenceEquals(ReaderChars.GetValue(reader), chars)
-                    || ReferenceEquals(BufferChars.GetValue(ReaderBuffer.GetValue(reader)), chars);
-            } catch { return false; }
+                    || ReferenceEquals(BufferChars.GetValue(ReaderBuffer.GetValue(reader)), chars) || Reject(chars);
+            } catch { return Reject(chars); }
+        }
+
+        private static bool Reject(char[] chars) {
+            try {
+                Fresh.Remove(chars);
+                ApiJsonBufferGrowthPreparation.Revoke(chars);
+            } catch { }
+            return false;
         }
 
         private static bool IsUnchanged() {

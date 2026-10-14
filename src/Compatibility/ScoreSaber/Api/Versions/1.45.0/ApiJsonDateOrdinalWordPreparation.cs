@@ -23,10 +23,9 @@ namespace ScoreSaber.Core.Api {
             equal = false;
             string text;
             try {
-                if (Thread.CurrentThread.IsThreadPoolThread || !Supported || word == null || word.Length < 524288
-                    || start < 0 || span.Length - start < word.Length || !IsUnchanged()) { return false; }
+                if (Thread.CurrentThread.IsThreadPoolThread || !Supported || word == null || start < 0 || !IsUnchanged()) { return false; }
                 text = ApiJsonDateLexicalPreparation.MatchText(span);
-                if (text == null) { return false; }
+                if (text == null || word.Length < 524288 || span.Length - start < word.Length) { return false; }
                 for (int at = 0; at < 1024; at++) { if (text[start + at] != word[at]) { return false; } }
             } catch { return false; }
             Task<bool> task = null;
@@ -88,8 +87,11 @@ namespace ScoreSaber.Core.Api {
                     AccessTools.Method(typeof(char), "CompareTo", new[] { typeof(char) }),
                     AccessTools.Method(dt, "get_Length"),
                     AccessTools.Method(typeof(string), "GetRawStringData"),
-                    typeof(CoreCharSpan).GetMethod("Slice", new[] { typeof(int), typeof(int) })
+                    typeof(CoreCharSpan).GetMethod("Slice", new[] { typeof(int), typeof(int) }),
+                    typeof(string).GetProperty("Length")?.GetGetMethod(),
+                    typeof(string).GetProperty("Chars")?.GetGetMethod()
                 };
+                int closedStart = guards.Count;
                 Type charRef = typeof(char).MakeByRefType();
                 guards.Add(FindGeneric(unsafeType, "AreSame", new[] { typeof(char) }, new[] { charRef, charRef }));
                 guards.Add(FindGeneric(unsafeType, "Add", new[] { typeof(char) }, new[] { charRef, typeof(int) }));
@@ -99,7 +101,7 @@ namespace ScoreSaber.Core.Api {
                     guards.Add(FindGeneric(unsafeType, "ReadUnaligned", new[] { type }, new[] { typeof(byte).MakeByRefType() }));
                 }
                 int closedCount = guards.Count;
-                for (int at = 10; at < closedCount; at++) {
+                for (int at = closedStart; at < closedCount; at++) {
                     MethodInfo closed = guards[at] as MethodInfo;
                     if (closed == null) { return null; }
                     guards.Add(closed.GetGenericMethodDefinition());

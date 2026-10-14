@@ -40,10 +40,11 @@ namespace ScoreSaber.Core.Api {
                     _cache = null;
                     cache = Prepare(chars, start, used, reader);
                     if (cache == null) {
-                        _cache = cache = new Cache(reader, chars, used, start - 2, null);
+                        try { _cache = cache = new Cache(reader, chars, used, start - 2, null); }
+                        catch { }
                     }
                 }
-                if (cache.Batch != null) {
+                if (cache != null && cache.Batch != null) {
                     int at = start - cache.Start;
                     Batch batch = cache.Batch;
                     if (at >= 0 && at < batch.Chars.Length - 4 && batch.Values[at] != 0

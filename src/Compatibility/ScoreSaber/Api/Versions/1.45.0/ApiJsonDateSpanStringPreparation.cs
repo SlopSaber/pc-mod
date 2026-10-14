@@ -17,6 +17,7 @@ namespace ScoreSaber.Core.Api {
         internal static readonly MethodInfo[] Targets = new MethodInfo[2];
         internal static readonly bool[] Rewritten = new bool[2];
         private static ConstructorInfo Constructor;
+        private static MethodInfo SpanLength;
         private static MethodBase[] Guards;
         private static readonly Allocate Allocator = Initialize();
         internal static bool Supported => Allocator != null && Guards != null && ApiJsonDateLexicalPreparation.Supported;
@@ -27,10 +28,10 @@ namespace ScoreSaber.Core.Api {
             int length = 0;
             try {
                 if (ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread && Supported
-                    && mode >= 0 && mode < 2 && IsUnchanged(mode)
-                    && ApiJsonDateLexicalPreparation.GetCandidates(out var text, out var format)) {
+                    && mode >= 0 && mode < 2 && Harmony.GetPatchInfo(SpanLength) == null) {
                     length = span.Length;
-                    if (length >= 524288) {
+                    if (length >= 524288 && IsUnchanged(mode)
+                        && ApiJsonDateLexicalPreparation.GetCandidates(out var text, out var format)) {
                         if (TryMatch(span, candidate, out start)) { root = candidate; }
                         else if (TryMatch(span, text, out start)) { root = text; }
                         else if (TryMatch(span, format, out start)) { root = format; }
@@ -82,6 +83,7 @@ namespace ScoreSaber.Core.Api {
                 Type helper = core.GetType("System.ThrowHelper");
                 if (extensions == null || unsafeType == null || helper == null) { return null; }
                 Constructor = typeof(string).GetConstructor(new[] { typeof(CoreCharSpan) });
+                SpanLength = typeof(CoreCharSpan).GetProperty("Length")?.GetGetMethod();
                 MethodInfo ctor = AccessTools.Method(typeof(string), "Ctor", new[] { typeof(CoreCharSpan) });
                 MethodInfo create = AccessTools.Method(typeof(string), "CreateString", new[] { typeof(CoreCharSpan) });
                 MethodInfo overlap = FindGeneric(extensions, "Overlaps", new[] { typeof(char) },
@@ -99,7 +101,7 @@ namespace ScoreSaber.Core.Api {
                 var guards = new List<MethodBase> {
                     Constructor, ctor, create, overlap, overlap.GetGenericMethodDefinition(),
                     typeof(CoreCharSpan).GetProperty("IsEmpty")?.GetGetMethod(),
-                    typeof(CoreCharSpan).GetProperty("Length")?.GetGetMethod(),
+                    SpanLength,
                     typeof(CoreCharSpan).GetMethod("Slice", new[] { typeof(int), typeof(int) }),
                     AccessTools.Method(typeof(string), "FastAllocateString", new[] { typeof(int) }),
                     AccessTools.Method(typeof(string), "wstrcpy", new[] { chars, chars, typeof(int) }),

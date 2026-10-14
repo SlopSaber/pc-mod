@@ -15,12 +15,16 @@ namespace ScoreSaber.Core.Api {
         [ThreadStatic]
         private static bool _active;
 
+        internal static bool IsActive => _active;
+
         internal static string Serialize(object body, JsonSerializerSettings settings) {
             bool previous = _active;
+            var previousBatch = ApiJsonUnicodeFormattingPreparation.Begin();
             _active = true;
             try {
                 return JsonConvert.SerializeObject(body, settings);
             } finally {
+                ApiJsonUnicodeFormattingPreparation.End(previousBatch);
                 _active = previous;
             }
         }

@@ -61,9 +61,19 @@ namespace ScoreSaber.Core.Api {
 
         internal static bool IsOnlyOwnPatch(HarmonyLib.Patches info) {
             if (info == null) { return true; }
-            return _rewritten && info.Prefixes.Count == 0 && info.Postfixes.Count == 0
-                && info.Finalizers.Count == 0 && info.Transpilers.Count == 1
-                && info.Transpilers[0].PatchMethod == TranspilerMethod;
+            if (info.Prefixes.Count != 0 || info.Postfixes.Count != 0 || info.Finalizers.Count != 0
+                || info.Transpilers.Count == 0 || info.Transpilers.Count > 2) { return false; }
+            bool hash = false;
+            bool comparison = false;
+            foreach (Patch patch in info.Transpilers) {
+                if (patch.PatchMethod == TranspilerMethod && _rewritten && !hash) {
+                    hash = true;
+                } else if (patch.PatchMethod == ApiJsonNameComparisonPatch.TranspilerMethod
+                    && ApiJsonNameComparisonPatch.Rewritten && !comparison) {
+                    comparison = true;
+                } else { return false; }
+            }
+            return hash || comparison;
         }
 
         private static bool Prepare() => Target != null;
@@ -73,7 +83,7 @@ namespace ScoreSaber.Core.Api {
             _rewritten = false;
             var code = new List<CodeInstruction>(instructions);
             FieldInfo mask = AccessTools.Field(typeof(DefaultJsonNameTable), "_mask");
-            if (code.Count != 97 || code[7].opcode != OpCodes.Stloc_0 || code[8].opcode != OpCodes.Ldloc_0
+            if ((code.Count != 97 && code.Count != 98) || code[7].opcode != OpCodes.Stloc_0 || code[8].opcode != OpCodes.Ldloc_0
                 || code[8].blocks.Count != 0 || code[62].opcode != OpCodes.Ldarg_0
                 || code[62].blocks.Count != 0 || code[63].opcode != OpCodes.Ldflda
                 || !Equals(code[63].operand, mask)) {

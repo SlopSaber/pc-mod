@@ -184,6 +184,36 @@ namespace ScoreSaber.Core.Api {
             }, out task);
         }
 
+        internal static StringBuilder AppendForFormatter(StringBuilder builder, string text) {
+            bool admitted = false;
+            try {
+                Frame frame = Current;
+                admitted = builder != null && text != null && text.Length >= 524288 && text.Length <= int.MaxValue / 2
+                    && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
+                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && Supported && Rewritten && FormatterRewritten && IsUnchanged();
+            } catch { }
+            if (!admitted) { return builder.Append(text); }
+            Task<string> task = null;
+            try { QueueString(builder, text, out task); }
+            catch { }
+            if (task == null) { return builder.Append(text); }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            task.GetAwaiter().GetResult();
+            return builder;
+        }
+
+        private static void QueueString(StringBuilder builder, string text, out Task<string> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => {
+                builder.Append(text);
+                return null;
+            }, out task);
+        }
+
         private static void Queue(StringBuilder builder, out Task<string> task) {
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => builder.ToString(), out task);
         }
@@ -299,7 +329,18 @@ namespace ScoreSaber.Core.Api {
             var code = new List<CodeInstruction>(instructions);
             FormatterRewritten = false;
             if (!Supported || code.Count != 666 || code[10].opcode != OpCodes.Call || !Equals(code[10].operand, AcquireTarget)) { return code; }
+            MethodInfo append = AccessTools.Method(typeof(StringBuilder), "Append", new[] { typeof(string) });
+            MethodInfo wrapper = AccessTools.Method(typeof(ApiJsonDateBuilderOutputPreparation), "AppendForFormatter");
+            int[] sites = { 131, 225, 263, 342, 379, 419, 444, 452, 549, 577, 585 };
+            if (append == null || wrapper == null) { return code; }
+            foreach (int at in sites) {
+                if (code[at].opcode != OpCodes.Callvirt || !Equals(code[at].operand, append)) { return code; }
+            }
             code[10].operand = AccessTools.Method(typeof(ApiJsonDateBuilderOutputPreparation), "AcquireForFormatter");
+            foreach (int at in sites) {
+                code[at].opcode = OpCodes.Call;
+                code[at].operand = wrapper;
+            }
             FormatterRewritten = true;
             return code;
         }

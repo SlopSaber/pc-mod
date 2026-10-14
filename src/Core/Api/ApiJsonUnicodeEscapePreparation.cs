@@ -32,14 +32,18 @@ namespace ScoreSaber.Core.Api {
             if (ReferenceEquals(reader, ApiJsonNumericPreparation.CurrentReader)
                 && !Thread.CurrentThread.IsThreadPoolThread && chars != null && start >= 2
                 && used <= chars.Length && start < used - 4 && end - start == 4
+                && (_cache != null || used - start >= MinimumLength)
                 && Harmony.GetPatchInfo(Kernel) == null) {
                 Cache cache = _cache;
                 if (cache == null || !ReferenceEquals(cache.Reader, reader)
                     || !ReferenceEquals(cache.Source, chars) || cache.Used != used) {
                     _cache = null;
                     cache = Prepare(chars, start, used, reader);
+                    if (cache == null) {
+                        _cache = cache = new Cache(reader, chars, used, start - 2, null);
+                    }
                 }
-                if (cache != null) {
+                if (cache.Batch != null) {
                     int at = start - cache.Start;
                     Batch batch = cache.Batch;
                     if (at >= 0 && at < batch.Chars.Length - 4 && batch.Values[at] != 0

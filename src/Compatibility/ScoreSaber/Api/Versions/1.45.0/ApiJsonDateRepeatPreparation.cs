@@ -18,6 +18,8 @@ namespace ScoreSaber.Core.Api {
         private static readonly bool Ready = Initialize();
         internal static bool Supported => Ready && FormatTarget != null && RepeatTarget != null;
 
+        internal static string GetFormatRoot() => Current;
+
         internal static void Enter(string format, out string previous) {
             previous = Current;
             Current = null;

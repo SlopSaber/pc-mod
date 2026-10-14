@@ -30,8 +30,10 @@ namespace ScoreSaber.Core.Api {
             _active = true;
             _reader = reader?.GetType() == typeof(JsonTextReader) ? (JsonTextReader)reader : null;
             try {
+                ApiJsonUnicodeEscapePreparation.Clear();
                 return serializer.Deserialize<T>(reader);
             } finally {
+                ApiJsonUnicodeEscapePreparation.Clear();
                 _active = previous;
                 _reader = previousReader;
             }

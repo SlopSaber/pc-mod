@@ -35,6 +35,18 @@ namespace ScoreSaber.Core.Api {
             } catch { return null; }
         }
 
+        internal static bool GetCandidates(out string text, out string format) {
+            text = null;
+            format = null;
+            try {
+                if (!ApiJsonNumericPreparation.IsActive || Thread.CurrentThread.IsThreadPoolThread
+                    || !Supported || !IsUnchanged(0)) { return false; }
+                text = _text;
+                format = _format;
+                return true;
+            } catch { return false; }
+        }
+
         internal static Scope Begin(string text, string format) {
             if (!ApiJsonNumericPreparation.IsActive || Thread.CurrentThread.IsThreadPoolThread) { return default; }
             var state = new Scope(_text, _format, true);

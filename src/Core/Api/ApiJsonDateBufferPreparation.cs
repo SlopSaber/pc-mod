@@ -36,13 +36,15 @@ namespace ScoreSaber.Core.Api {
                         catch (ThreadInterruptedException) { }
                         catch (AggregateException) { }
                     }
-                    return task.GetAwaiter().GetResult();
+                    char[] chars = task.GetAwaiter().GetResult();
+                    ApiJsonDateSignSearchPreparation.Record(chars);
+                    return chars;
                 }
             }
             return text.ToCharArray();
         }
 
-        private static bool CanPrepare() {
+        internal static bool CanPrepare() {
             try {
                 if (!ApiJsonNumericPreparation.IsActive || !Supported || !ApiJsonDateBufferPatch.Rewritten
                     || !ApiJsonDateOffsetBufferPatch.Rewritten

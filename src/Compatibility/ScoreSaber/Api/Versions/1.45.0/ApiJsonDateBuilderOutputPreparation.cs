@@ -30,6 +30,10 @@ namespace ScoreSaber.Core.Api {
         internal static MethodInfo StringTarget;
         internal static MethodInfo BufferTarget;
         internal static MethodInfo FormatterTarget;
+        private static MethodInfo ConcatTarget;
+        private static MethodInfo EmptyTarget;
+        private static MethodInfo FillTarget;
+        internal static bool ExpandedRewritten;
         internal static bool Rewritten;
         internal static bool FormatterRewritten;
         private static ConstructorInfo Constructor;
@@ -272,6 +276,42 @@ namespace ScoreSaber.Core.Api {
             }
         }
 
+        internal static string ConcatForPattern(string first, string separator, string last) {
+            bool admitted = false;
+            try {
+                if (ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread && Supported
+                    && ExpandedRewritten && IsUnchanged() && ApiJsonDateRepeatPreparation.CanPrepareOwnedFormat()
+                    && first != null && separator != null && last != null && first.Length != 0 && separator.Length != 0 && last.Length != 0) {
+                    long size = (long)first.Length + separator.Length + last.Length;
+                    admitted = size >= 524288 && size <= int.MaxValue / 2;
+                }
+            } catch { }
+            if (!admitted) { return string.Concat(first, separator, last); }
+            Task<string> task = null;
+            try { QueueConcat(first, separator, last, out task); }
+            catch { }
+            if (task == null) { return string.Concat(first, separator, last); }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            return task.GetAwaiter().GetResult();
+        }
+
+        private static void QueueConcat(string first, string separator, string last, out Task<string> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => string.Concat(first, separator, last), out task);
+        }
+
+        internal static IEnumerable<CodeInstruction> RewriteExpanded(IEnumerable<CodeInstruction> instructions) {
+            var code = new List<CodeInstruction>(instructions);
+            ExpandedRewritten = false;
+            if (!Supported || code.Count != 99 || code[44].opcode != OpCodes.Call || !Equals(code[44].operand, ConcatTarget)) { return code; }
+            code[44].operand = AccessTools.Method(typeof(ApiJsonDateBuilderOutputPreparation), "ConcatForPattern");
+            ExpandedRewritten = true;
+            return code;
+        }
+
         private static void Queue(StringBuilder builder, out Task<string> task) {
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => builder.ToString(), out task);
         }
@@ -295,7 +335,7 @@ namespace ScoreSaber.Core.Api {
                 || !Exact(BufferTarget, ApiJsonDateBuilderBufferPatch.PrefixMethod, null, null, null)
                 || !Exact(ApiJsonDateRepeatPreparation.FormatTarget, ApiJsonDateFormatScopePatch.PrefixMethod, null, null, ApiJsonDateFormatScopePatch.FinalizerMethod)
                 || !Exact(ApiJsonDateRepeatPreparation.RepeatTarget, ApiJsonDateRepeatPatch.PrefixMethod, null, null, null)
-                || !Exact(ApiJsonDateRepeatPreparation.ExpandedTarget, null, ApiJsonDateExpandedRootPatch.PostfixMethod, null, null)
+                || !Exact(ApiJsonDateRepeatPreparation.ExpandedTarget, null, ApiJsonDateExpandedRootPatch.PostfixMethod, ApiJsonDateExpandedRootPatch.TranspilerMethod, null)
                 || !Exact(ApiJsonDateRepeatPreparation.GenitiveTarget, ApiJsonDateGenitivePatch.PrefixMethod, null, null, null)
                 || !Exact(ApiJsonDateLiteralPreparation.Target, ApiJsonDateLiteralPatch.PrefixMethod, null, null, null)
                 || !Exact(FormatterTarget, null, null, ApiJsonDateBuilderFormatterPatch.TranspilerMethod, null)) { return false; }
@@ -325,6 +365,13 @@ namespace ScoreSaber.Core.Api {
                 MethodInfo customized = AccessTools.Method(date, "FormatCustomized", new[] { typeof(DateTime), typeof(CoreCharSpan), typeof(System.Globalization.DateTimeFormatInfo), typeof(TimeSpan), typeof(StringBuilder) });
                 FormatterTarget = customized;
                 CachedField = AccessTools.Field(cache, "t_cachedInstance");
+                ConcatTarget = AccessTools.Method(typeof(string), "Concat", new[] { typeof(string), typeof(string), typeof(string) });
+                EmptyTarget = AccessTools.Method(typeof(string), "IsNullOrEmpty", new[] { typeof(string) });
+                FillTarget = AccessTools.Method(typeof(string), "FillStringChecked", new[] { typeof(string), typeof(int), typeof(string) });
+                if (!Matches(ConcatTarget, 115, "3a0a221449ed420d495a6a8ff8c82a38fd014376eb731525e4b3e65461ce0794")
+                    || !Matches(EmptyTarget, 16, "dadf43597eaa2cded2f651d3e2cc9598b8fe0eb74770fdb8f66c78aabf6d3619")
+                    || !Matches(FillTarget, 65, "e865ddfcb998a9c9ea911aa781d763799b146d558cc68009635508ed8a38e246")) { return null; }
+
                 Constructor = typeof(StringBuilder).GetConstructor(new[] { typeof(int) });
                 if (Constructor == null
                     || CachedField == null || CachedField.FieldType != typeof(StringBuilder) || !CachedField.IsStatic
@@ -334,7 +381,7 @@ namespace ScoreSaber.Core.Api {
                     || !Matches(StringTarget, 13, "0e3b70cc753a9f635c0050a462b2770b08a012af977e45625008bd3a48c9d1af")
                     || !Matches(BufferTarget, 33, "e39ab25d207d5cdaf9809f34bc473746326631b534977db650ca677170757acb")
                     || !Matches(customized, 1707, "759faa2aa86c7ce2cf68d9bf3223679d3cf26203e3fbb355d150558b017818bf")) { return null; }
-                var guards = new List<MethodBase> { AccessTools.PropertyGetter(typeof(ApiJsonNumericPreparation), "IsActive") };
+                var guards = new List<MethodBase> { AccessTools.PropertyGetter(typeof(ApiJsonNumericPreparation), "IsActive"), ConcatTarget, EmptyTarget, FillTarget };
                 AddDeclaredGuards(guards, typeof(StringBuilder));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderOutputPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonOwnedOutputPreparation));

@@ -61,8 +61,9 @@ namespace ScoreSaber.Core.Api {
         internal static bool ExpandedUnchanged() {
             HarmonyLib.Patches info = Harmony.GetPatchInfo(ExpandedTarget);
             return info != null && info.Prefixes.Count == 0 && info.Postfixes.Count == 1
-                && info.Transpilers.Count == 0 && info.Finalizers.Count == 0
-                && info.Postfixes[0].PatchMethod == ApiJsonDateExpandedRootPatch.PostfixMethod;
+                && info.Transpilers.Count == 1 && info.Finalizers.Count == 0
+                && info.Postfixes[0].PatchMethod == ApiJsonDateExpandedRootPatch.PostfixMethod
+                && info.Transpilers[0].PatchMethod == ApiJsonDateExpandedRootPatch.TranspilerMethod;
         }
 
         internal static bool TryPrepare(CoreCharSpan span, int position, char pattern, out int result) {
@@ -276,9 +277,11 @@ namespace ScoreSaber.Core.Api {
     [HarmonyPatch]
     internal static class ApiJsonDateExpandedRootPatch {
         internal static readonly MethodInfo PostfixMethod = AccessTools.Method(typeof(ApiJsonDateExpandedRootPatch), "Postfix");
+        internal static readonly MethodInfo TranspilerMethod = AccessTools.Method(typeof(ApiJsonDateExpandedRootPatch), "Transpiler");
         private static bool Prepare() => ApiJsonDateRepeatPreparation.Supported;
         private static MethodBase TargetMethod() => ApiJsonDateRepeatPreparation.ExpandedTarget;
         private static void Postfix(string __result) => ApiJsonDateRepeatPreparation.RecordExpandedRoot(__result);
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) => ApiJsonDateBuilderOutputPreparation.RewriteExpanded(instructions);
     }
 
     [HarmonyPatch]

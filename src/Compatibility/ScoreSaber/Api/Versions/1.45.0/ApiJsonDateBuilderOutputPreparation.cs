@@ -238,11 +238,13 @@ namespace ScoreSaber.Core.Api {
                 || !Exact(ApiJsonDateRepeatPreparation.FormatTarget, ApiJsonDateFormatScopePatch.PrefixMethod, null, null, ApiJsonDateFormatScopePatch.FinalizerMethod)
                 || !Exact(ApiJsonDateRepeatPreparation.RepeatTarget, ApiJsonDateRepeatPatch.PrefixMethod, null, null, null)
                 || !Exact(ApiJsonDateRepeatPreparation.ExpandedTarget, null, ApiJsonDateExpandedRootPatch.PostfixMethod, null, null)
+                || !Exact(ApiJsonDateRepeatPreparation.GenitiveTarget, ApiJsonDateGenitivePatch.PrefixMethod, null, null, null)
                 || !Exact(ApiJsonDateLiteralPreparation.Target, ApiJsonDateLiteralPatch.PrefixMethod, null, null, null)
                 || !Exact(FormatterTarget, null, null, ApiJsonDateBuilderFormatterPatch.TranspilerMethod, null)) { return false; }
             foreach (MethodInfo method in DateMethods) {
                 if (method != ApiJsonDateRepeatPreparation.FormatTarget && method != ApiJsonDateRepeatPreparation.RepeatTarget
                     && method != ApiJsonDateRepeatPreparation.ExpandedTarget && method != ApiJsonDateLiteralPreparation.Target && method != FormatterTarget
+                    && method != ApiJsonDateRepeatPreparation.GenitiveTarget
                     && Harmony.GetPatchInfo(method) != null) { return false; }
             }
             foreach (MethodBase method in Guards) {
@@ -285,6 +287,7 @@ namespace ScoreSaber.Core.Api {
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderFormatterPatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateRepeatPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateFormatScopePatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateGenitivePatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateLiteralPreparation));
                 AddDeclaredGuards(guards, typeof(ReplayStorageService));
                 foreach (MethodBase method in guards) { if (method == null) { return null; } }

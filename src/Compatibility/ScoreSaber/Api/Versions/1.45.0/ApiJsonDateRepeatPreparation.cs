@@ -16,6 +16,7 @@ namespace ScoreSaber.Core.Api {
         internal static MethodInfo FormatTarget;
         internal static MethodInfo RepeatTarget;
         internal static MethodInfo ExpandedTarget;
+        internal static MethodInfo GenitiveTarget;
         private static MethodBase[] Guards;
         private static readonly bool Ready = Initialize();
         internal static bool Supported => Ready && FormatTarget != null && RepeatTarget != null;
@@ -94,6 +95,81 @@ namespace ScoreSaber.Core.Api {
             return true;
         }
 
+        internal static bool TryPrepareGenitive(CoreCharSpan span, int position, int tokenLength, char pattern, out bool result) {
+            result = false;
+            string text = null;
+            int start = 0;
+            int length = 0;
+            try {
+                string candidate = Current;
+                if (candidate != null && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && Supported && IsUnchanged() && ApiJsonDateSpanStringPreparation.CanReadImmutableSpan()) {
+                    length = span.Length;
+                    if (length >= 524288 && length <= int.MaxValue / 2 && position >= 0 && position < length
+                        && tokenLength >= 0 && tokenLength <= length - position) {
+                        CoreCharSpan whole = ScoreSaberCore::System.MemoryExtensions.AsSpan(candidate);
+                        if (ScoreSaberCore::System.MemoryExtensions.Overlaps(whole, span, out start)
+                            && start >= 0 && length <= whole.Length - start
+                            && ScanGenitive(candidate, start, length, position, tokenLength, pattern, 1024) == -1) { text = candidate; }
+                    }
+                }
+            } catch { }
+            if (text == null) { return false; }
+            Task<int> task = null;
+            try { QueueGenitive(text, start, length, position, tokenLength, pattern, out task); }
+            catch { }
+            if (task == null) { return false; }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            result = task.GetAwaiter().GetResult() == 1;
+            return true;
+        }
+
+        private static void QueueGenitive(string text, int start, int length, int position, int tokenLength, char pattern, out Task<int> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
+                () => ScanGenitive(text, start, length, position, tokenLength, pattern, int.MaxValue), out task);
+        }
+
+        private static int ScanGenitive(string text, int start, int length, int position, int tokenLength, char pattern, int budget) {
+            int work = 0;
+            int index = position - 1;
+            int repeated = 0;
+            while (index >= 0 && text[start + index] != pattern) {
+                if (work++ == budget) { return -1; }
+                index--;
+            }
+            if (index >= 0) {
+                while (--index >= 0 && text[start + index] == pattern) {
+                    if (work++ == budget) { return -1; }
+                    repeated++;
+                }
+                if (repeated <= 1) { return 1; }
+            }
+            index = position + tokenLength;
+            while (index < length && text[start + index] != pattern) {
+                if (work++ == budget) { return -1; }
+                index++;
+            }
+            if (index < length) {
+                repeated = 0;
+                while (++index < length && text[start + index] == pattern) {
+                    if (work++ == budget) { return -1; }
+                    repeated++;
+                }
+                if (repeated <= 1) { return 1; }
+            }
+            return 0;
+        }
+
+        private static bool GenitiveUnchanged() {
+            HarmonyLib.Patches info = Harmony.GetPatchInfo(GenitiveTarget);
+            return info != null && info.Prefixes.Count == 1 && info.Prefixes[0].PatchMethod == ApiJsonDateGenitivePatch.PrefixMethod
+                && info.Postfixes.Count == 0 && info.Transpilers.Count == 0 && info.Finalizers.Count == 0;
+        }
+
         private static void Queue(string text, int start, int length, int position, char pattern, out Task<int> task) {
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
                 () => Scan(text, start, length, position, pattern), out task);
@@ -106,7 +182,7 @@ namespace ScoreSaber.Core.Api {
         }
 
         private static bool IsUnchanged() {
-            if (!ExpandedUnchanged()) { return false; }
+            if (!ExpandedUnchanged() || !GenitiveUnchanged()) { return false; }
             HarmonyLib.Patches format = Harmony.GetPatchInfo(FormatTarget);
             HarmonyLib.Patches repeat = Harmony.GetPatchInfo(RepeatTarget);
             if (format == null || format.Prefixes.Count != 1 || format.Postfixes.Count != 0
@@ -130,9 +206,11 @@ namespace ScoreSaber.Core.Api {
                 FormatTarget = AccessTools.Method(date, "Format", new[] { typeof(DateTime), typeof(string), typeof(IFormatProvider), typeof(TimeSpan) });
                 RepeatTarget = AccessTools.Method(date, "ParseRepeatPattern", new[] { typeof(CoreCharSpan), typeof(int), typeof(char) });
                 ExpandedTarget = AccessTools.Method(date, "GetRealFormat", new[] { typeof(CoreCharSpan), typeof(System.Globalization.DateTimeFormatInfo) });
+                GenitiveTarget = AccessTools.Method(date, "IsUseGenitiveForm", new[] { typeof(CoreCharSpan), typeof(int), typeof(int), typeof(char) });
                 if (!Matches(FormatTarget, 174, "83ff23a69ec7bf2812639135a4f558e58e9ed8e8c726fbf6d104f4023bdf624c")
                     || !Matches(RepeatTarget, 38, "779c428a81ba0725fd2e1f5a397bb944d7c08f970525f452151b9a6458ef88bd")
-                    || !Matches(ExpandedTarget, 360, "1fc04d3912122e138f62e0f838608b962b8687cd155debab5adad3f682cad680")) { return false; }
+                    || !Matches(ExpandedTarget, 360, "1fc04d3912122e138f62e0f838608b962b8687cd155debab5adad3f682cad680")
+                    || !Matches(GenitiveTarget, 148, "655321f8516546f90635c24ddf0ceadc677b535a380f7e9fb9b992dec021e412")) { return false; }
                 var guards = new List<MethodBase> {
                     typeof(string).GetProperty("Length")?.GetGetMethod(),
                     typeof(string).GetProperty("Chars")?.GetGetMethod(),
@@ -144,6 +222,7 @@ namespace ScoreSaber.Core.Api {
                 AddDeclaredGuards(guards, typeof(ApiJsonDateRepeatPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateFormatScopePatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateRepeatPatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateGenitivePatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateExpandedRootPatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateSpanStringPreparation));
                 AddDeclaredGuards(guards, typeof(ReplayStorageService));
@@ -199,6 +278,15 @@ namespace ScoreSaber.Core.Api {
         private static bool Prepare() => ApiJsonDateRepeatPreparation.Supported;
         private static MethodBase TargetMethod() => ApiJsonDateRepeatPreparation.ExpandedTarget;
         private static void Postfix(string __result) => ApiJsonDateRepeatPreparation.RecordExpandedRoot(__result);
+    }
+
+    [HarmonyPatch]
+    internal static class ApiJsonDateGenitivePatch {
+        internal static readonly MethodInfo PrefixMethod = AccessTools.Method(typeof(ApiJsonDateGenitivePatch), "Prefix");
+        private static bool Prepare() => ApiJsonDateRepeatPreparation.Supported;
+        private static MethodBase TargetMethod() => ApiJsonDateRepeatPreparation.GenitiveTarget;
+        private static bool Prefix(CoreCharSpan __0, int __1, int __2, char __3, ref bool __result)
+            => !ApiJsonDateRepeatPreparation.TryPrepareGenitive(__0, __1, __2, __3, out __result);
     }
 
     [HarmonyPatch]

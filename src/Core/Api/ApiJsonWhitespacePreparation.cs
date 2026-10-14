@@ -17,12 +17,15 @@ namespace ScoreSaber.Core.Api {
         internal static int Advance(char[] chars, int start, int used) {
             if (!ApiJsonNumericPreparation.IsActive || chars == null || start < 0
                 || used > chars.Length || used - start < MinimumLength
-                || Thread.CurrentThread.IsThreadPoolThread
-                || Scan(chars, start, PrefixLength) != PrefixLength) {
+                || Thread.CurrentThread.IsThreadPoolThread) {
+                return start;
+            }
+            bool unicode = ApiJsonUnicodeCategories.Supported;
+            if (Scan(chars, start, PrefixLength, unicode) != PrefixLength) {
                 return start;
             }
             Task<int> task = null;
-            try { Queue(chars, start, used - start, out task); }
+            try { Queue(chars, start, used - start, unicode, out task); }
             catch { }
             if (task == null) {
                 return start;
@@ -36,17 +39,18 @@ namespace ScoreSaber.Core.Api {
             catch { return start; }
         }
 
-        private static void Queue(char[] chars, int start, int length, out Task<int> task) {
+        private static void Queue(char[] chars, int start, int length, bool unicode, out Task<int> task) {
             var ownedChars = new char[length];
             Array.Copy(chars, start, ownedChars, 0, length);
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
-                () => Scan(ownedChars, 0, ownedChars.Length), out task);
+                () => Scan(ownedChars, 0, ownedChars.Length, unicode), out task);
         }
 
-        private static int Scan(char[] chars, int start, int length) {
+        private static int Scan(char[] chars, int start, int length, bool unicode) {
             for (int i = 0; i < length; i++) {
                 char value = chars[start + i];
-                if (value != ' ' && value != '\t' && value != '\v' && value != '\f') {
+                if (value != ' ' && value != '\t' && value != '\v' && value != '\f'
+                    && !(unicode && value > 127 && ApiJsonUnicodeCategories.IsWhiteSpace(value))) {
                     return i;
                 }
             }

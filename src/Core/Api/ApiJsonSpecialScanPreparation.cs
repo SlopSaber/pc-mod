@@ -17,12 +17,15 @@ namespace ScoreSaber.Core.Api {
         internal static int Advance(char[] chars, int start, int used, int mode) {
             if (!ApiJsonNumericPreparation.IsActive || chars == null || start < 0
                 || used > chars.Length || used - start < MinimumLength
-                || Thread.CurrentThread.IsThreadPoolThread
-                || Scan(chars, start, PrefixLength, mode) != PrefixLength) {
+                || Thread.CurrentThread.IsThreadPoolThread) {
+                return start;
+            }
+            bool unicode = ApiJsonUnicodeCategories.Supported;
+            if (Scan(chars, start, PrefixLength, mode, unicode) != PrefixLength) {
                 return start;
             }
             Task<int> task = null;
-            try { Queue(chars, start, used - start, mode, out task); }
+            try { Queue(chars, start, used - start, mode, unicode, out task); }
             catch { }
             if (task == null) {
                 return start;
@@ -36,14 +39,14 @@ namespace ScoreSaber.Core.Api {
             catch { return start; }
         }
 
-        private static void Queue(char[] chars, int start, int length, int mode, out Task<int> task) {
+        private static void Queue(char[] chars, int start, int length, int mode, bool unicode, out Task<int> task) {
             var ownedChars = new char[length];
             Array.Copy(chars, start, ownedChars, 0, length);
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
-                () => Scan(ownedChars, 0, ownedChars.Length, mode), out task);
+                () => Scan(ownedChars, 0, ownedChars.Length, mode, unicode), out task);
         }
 
-        private static int Scan(char[] chars, int start, int length, int mode) {
+        private static int Scan(char[] chars, int start, int length, int mode, bool unicode) {
             for (int i = 0; i < length; i++) {
                 char value = chars[start + i];
                 if (mode == 2) {
@@ -51,7 +54,8 @@ namespace ScoreSaber.Core.Api {
                         return i;
                     }
                 } else if (!((uint)(value - '0') <= 9 || (uint)(value - 'A') <= 25
-                    || (uint)(value - 'a') <= 25 || (mode == 0 && (value == '_' || value == '$')))) {
+                    || (uint)(value - 'a') <= 25 || (mode == 0 && (value == '_' || value == '$'))
+                    || (unicode && value > 127 && ApiJsonUnicodeCategories.IsLetterOrDigit(value)))) {
                     return i;
                 }
             }

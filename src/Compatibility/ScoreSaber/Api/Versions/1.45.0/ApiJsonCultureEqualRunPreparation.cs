@@ -13,6 +13,7 @@ namespace ScoreSaber.Core.Api {
         internal static MethodInfo Target;
         internal static bool Rewritten;
         private static FieldInfo Locale;
+        private static FieldInfo UnsafeMask;
         private static readonly MethodBase[] Guards = Initialize();
         internal static bool Supported => Guards != null;
 
@@ -125,6 +126,57 @@ namespace ScoreSaber.Core.Api {
             return count;
         }
 
+        private static bool TryPrepareRewind(string first, int start1, int floor1, string second, int start2, int floor2,
+            byte[] currentMask, out int count1, out int count2) {
+            count1 = 0;
+            count2 = 0;
+            byte[] mask;
+            try {
+                if (!ApiJsonNumericPreparation.IsActive || Thread.CurrentThread.IsThreadPoolThread || !Supported
+                    || first == null || second == null || floor1 < 0 || floor2 < 0
+                    || start1 < floor1 || start2 < floor2 || start1 - floor1 < 524288 || start2 - floor2 < 524288
+                    || !IsUnchanged() || start1 >= first.Length || start2 >= second.Length
+                    || currentMask == null || currentMask.Length != 96) { return false; }
+                mask = new byte[96];
+                for (int at = 0; at < mask.Length; at++) { mask[at] = currentMask[at]; }
+                for (int at = 0; at < 1024; at++) {
+                    if (IsMaskSafe(first[start1 - at], mask) || IsMaskSafe(second[start2 - at], mask)) { return false; }
+                }
+            } catch { return false; }
+            Task<HeadingCounts> task = null;
+            try { QueueRewind(first, start1, floor1, second, start2, floor2, mask, out task); }
+            catch { }
+            if (task == null) { return false; }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            HeadingCounts result = task.GetAwaiter().GetResult();
+            count1 = result.First;
+            count2 = result.Second;
+            return true;
+        }
+
+        private static bool IsMaskSafe(char value, byte[] mask) {
+            return value / 8 >= mask.Length || (mask[value / 8] & (1 << (value % 8))) == 0;
+        }
+
+        private static HeadingCounts ComputeRewind(string first, int start1, int floor1, string second,
+            int start2, int floor2, byte[] mask) {
+            int count1 = 0;
+            int count2 = 0;
+            while (start1 - count1 > floor1 && !IsMaskSafe(first[start1 - count1], mask)) { count1++; }
+            while (start2 - count2 > floor2 && !IsMaskSafe(second[start2 - count2], mask)) { count2++; }
+            return new HeadingCounts { First = count1, Second = count2 };
+        }
+
+        private static void QueueRewind(string first, int start1, int floor1, string second, int start2, int floor2,
+            byte[] mask, out Task<HeadingCounts> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
+                () => ComputeRewind(first, start1, floor1, second, start2, floor2, mask), out task);
+        }
+
         private static bool IsUnchanged() {
             if (!Rewritten) { return false; }
             HarmonyLib.Patches info = Harmony.GetPatchInfo(Target);
@@ -168,11 +220,17 @@ namespace ScoreSaber.Core.Api {
                 MethodInfo ignorable = AccessTools.Method(collator, "IsIgnorable", new[] { typeof(int), typeof(System.Globalization.CompareOptions) });
                 Type table = typeof(string).Assembly.GetType("Mono.Globalization.Unicode.MSCompatUnicodeTable");
                 MethodInfo tableIgnorable = table == null ? null : AccessTools.Method(table, "IsIgnorable", new[] { typeof(int), typeof(byte) });
-                MethodInfo[] nulMethods = { ignorable, tableIgnorable };
-                int[] nulSizes = { 41, 73 };
+                MethodInfo safe = AccessTools.Method(collator, "IsSafe", new[] { typeof(int) });
+                ConstructorInfo constructor = AccessTools.Constructor(collator, new[] { typeof(System.Globalization.CultureInfo) });
+                UnsafeMask = AccessTools.Field(collator, "unsafeFlags");
+                if (UnsafeMask == null || UnsafeMask.IsStatic || !UnsafeMask.IsInitOnly || UnsafeMask.FieldType != typeof(byte[])) { return null; }
+                MethodBase[] nulMethods = { ignorable, tableIgnorable, safe, constructor };
+                int[] nulSizes = { 41, 73, 38, 381 };
                 string[] nulHashes = {
                     "ada63657178fb6ea84e309e476d02c324e82ff55834a92e66422d870fbc1a0bd",
-                    "4ebb2d9e7fe6f28e50e0800b2f68a48f0fb11d8b141cfc8360275aedecf51636"
+                    "4ebb2d9e7fe6f28e50e0800b2f68a48f0fb11d8b141cfc8360275aedecf51636",
+                    "783efbdcb3d260671ddb13818478e56281060f6fb5c0d044806b593393ddfb76",
+                    "de365d2f47099494b3f8ccd137216f049546210f4069f6e3b44d91c3680cf887"
                 };
                 for (int at = 0; at < nulMethods.Length; at++) {
                     bytes = nulMethods[at]?.GetMethodBody()?.GetILAsByteArray();
@@ -182,7 +240,7 @@ namespace ScoreSaber.Core.Api {
                     }
                 }
                 var guards = new MethodBase[] {
-                    classifier, ignorable, tableIgnorable, typeof(string).GetProperty("Length")?.GetGetMethod(), typeof(string).GetProperty("Chars")?.GetGetMethod()
+                    classifier, ignorable, tableIgnorable, safe, constructor, typeof(string).GetProperty("Length")?.GetGetMethod(), typeof(string).GetProperty("Chars")?.GetGetMethod()
                 };
                 foreach (MethodBase method in guards) { if (method == null) { return null; } }
                 return guards;
@@ -197,6 +255,9 @@ namespace ScoreSaber.Core.Api {
             if (code[38].opcode != OpCodes.Br_S || code[66].opcode != OpCodes.Ldc_I4_0) { return code; }
             if (code[90].opcode != OpCodes.Br_S || code[104].opcode != OpCodes.Br_S
                 || code[96].opcode != OpCodes.Brfalse_S || !Equals(code[96].operand, code[104].operand)) { return code; }
+            if (code[248].opcode != OpCodes.Br_S || code[240].opcode != OpCodes.Bne_Un_S
+                || !Equals(code[240].operand, code[248].operand)) { return code; }
+            CodeInstruction secondNonCategory = code[240];
             CodeInstruction firstNonIgnorable = code[96];
             CodeInstruction afterHeadings = code[66];
             foreach (CodeInstruction instruction in code) { if (instruction.blocks.Count != 0) { return code; } }
@@ -204,6 +265,26 @@ namespace ScoreSaber.Core.Api {
             Label finished = generator.DefineLabel();
             code[196].labels.Add(finished);
             LocalBuilder count = generator.DeclareLocal(typeof(int));
+            Label rewindEntry = generator.DefineLabel();
+            Label rewindFallback = generator.DefineLabel();
+            LocalBuilder rewindSecondCount = generator.DeclareLocal(typeof(int));
+            var rewindFirst = new CodeInstruction(OpCodes.Ldarg_1);
+            rewindFirst.labels.Add(rewindEntry);
+            rewindFirst.labels.AddRange(code[248].labels); code[248].labels.Clear();
+            code[248].labels.Add(rewindFallback);
+            secondNonCategory.operand = rewindEntry;
+            code.InsertRange(248, new[] {
+                rewindFirst, new CodeInstruction(OpCodes.Ldarg_2), CodeInstruction.LoadLocal(34),
+                new CodeInstruction(OpCodes.Ldarg_S, (byte)4), new CodeInstruction(OpCodes.Ldarg_S, (byte)5),
+                CodeInstruction.LoadLocal(35), new CodeInstruction(OpCodes.Ldarg_0), new CodeInstruction(OpCodes.Ldfld, UnsafeMask),
+                new CodeInstruction(OpCodes.Ldloca, count), new CodeInstruction(OpCodes.Ldloca, rewindSecondCount),
+                new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ApiJsonCultureEqualRunPreparation), "TryPrepareRewind")),
+                new CodeInstruction(OpCodes.Brfalse, rewindFallback),
+                new CodeInstruction(OpCodes.Ldarg_2), new CodeInstruction(OpCodes.Ldloc, count), new CodeInstruction(OpCodes.Sub),
+                new CodeInstruction(OpCodes.Starg_S, (byte)2),
+                new CodeInstruction(OpCodes.Ldarg_S, (byte)5), new CodeInstruction(OpCodes.Ldloc, rewindSecondCount), new CodeInstruction(OpCodes.Sub),
+                new CodeInstruction(OpCodes.Starg_S, (byte)5)
+            });
             var first = new CodeInstruction(OpCodes.Ldarg_1);
             first.labels.AddRange(code[174].labels); code[174].labels.Clear();
             code[174].labels.Add(fallback);

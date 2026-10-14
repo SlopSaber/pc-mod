@@ -346,7 +346,9 @@ namespace ScoreSaber.Core.Api {
                     && Harmony.GetPatchInfo(method) != null) { return false; }
             }
             foreach (MethodBase method in Guards) {
-                if (method != BufferTarget && Harmony.GetPatchInfo(method) != null) { return false; }
+                if (method == ApiJsonCompositeFormatAppendPreparation.Target) {
+                    if (!ApiJsonCompositeFormatAppendPreparation.IsAccepted()) { return false; }
+                } else if (method != BufferTarget && Harmony.GetPatchInfo(method) != null) { return false; }
             }
             return ApiJsonOwnedOutputPreparation.CanUseOriginalBuilder();
         }
@@ -383,6 +385,8 @@ namespace ScoreSaber.Core.Api {
                     || !Matches(customized, 1707, "759faa2aa86c7ce2cf68d9bf3223679d3cf26203e3fbb355d150558b017818bf")) { return null; }
                 var guards = new List<MethodBase> { AccessTools.PropertyGetter(typeof(ApiJsonNumericPreparation), "IsActive"), ConcatTarget, EmptyTarget, FillTarget };
                 AddDeclaredGuards(guards, typeof(StringBuilder));
+                AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPreparation));
+                AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderOutputPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonOwnedOutputPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderAcquirePatch));

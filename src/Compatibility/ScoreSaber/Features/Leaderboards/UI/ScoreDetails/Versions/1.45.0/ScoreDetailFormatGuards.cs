@@ -22,7 +22,9 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
 
         private static bool IsUnchanged() {
             foreach (MethodBase method in Guards) {
-                if (Harmony.GetPatchInfo(method) != null) { return false; }
+                if (method == ApiJsonCompositeFormatAppendPreparation.Target) {
+                    if (!ApiJsonCompositeFormatAppendPreparation.IsAccepted()) { return false; }
+                } else if (Harmony.GetPatchInfo(method) != null) { return false; }
             }
             return true;
         }
@@ -39,6 +41,8 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
                     || !Matches(append, 988, "570368ca8de8c65837b1e5470dcbd6dd53d8bcaccbcf46f074a7ac8e70b2cb34")) { return null; }
                 var guards = new List<MethodBase> { format, helper, append };
                 AddDeclaredGuards(guards, parameters);
+                AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPreparation));
+                AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPatch));
                 AddDeclaredGuards(guards, typeof(double));
                 AddDeclaredGuards(guards, typeof(string).Assembly.GetType("System.Number"));
                 AddDeclaredGuards(guards, typeof(ScoreDetailFormatPreparation));

@@ -62,7 +62,7 @@ namespace ScoreSaber.Core.Api {
             batch = null;
             try {
                 if (!ApiJsonEscapePreparation.IsActive || Thread.CurrentThread.IsThreadPoolThread || !Supported
-                    || handling != StringEscapeHandling.EscapeNonAscii || text == null || text.Length < 524288
+                    || text == null || text.Length < 524288
                     || index < 0 || index >= text.Length || text[index] != value || buffer == null || buffer.Length < 6
                     || !IsUnchanged()) { return false; }
                 Batch cached = _batch;
@@ -74,7 +74,13 @@ namespace ScoreSaber.Core.Api {
                 if (text.Length - index < BatchLength) { return false; }
                 for (int at = index; at < index + 1024; at++) {
                     char current = text[at];
-                    if (current < 128 || current == '\u0085' || current == '\u2028' || current == '\u2029') { return false; }
+                    bool control = current < 32 && current != '\b' && current != '\t'
+                        && current != '\n' && current != '\f' && current != '\r';
+                    bool nonAscii = handling == StringEscapeHandling.EscapeNonAscii && current >= 128
+                        && current != '\u0085' && current != '\u2028' && current != '\u2029';
+                    bool html = handling == StringEscapeHandling.EscapeHtml
+                        && (current == '\'' || current == '"' || current == '&' || current == '<' || current == '>');
+                    if (!control && !nonAscii && !html) { return false; }
                 }
             } catch { return false; }
 
@@ -142,9 +148,13 @@ namespace ScoreSaber.Core.Api {
                     AccessTools.Method(typeof(ApiJsonEscapePreparation), "Serialize"),
                     AccessTools.PropertyGetter(typeof(ApiJsonEscapePreparation), "IsActive") };
                 guards.AddRange(typeof(ApiJsonUnicodeFormattingPreparation).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
-                guards.AddRange(typeof(Batch).GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
+                foreach (Type nested in typeof(ApiJsonUnicodeFormattingPreparation).GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) {
+                    guards.AddRange(nested.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
+                    guards.AddRange(nested.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
+                }
                 foreach (MethodInfo method in typeof(ReplayStorageService).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)) {
                     if (method.Name == "TryQueueOwnedPreparationWhenIdle" && method.IsGenericMethodDefinition) {
+                        guards.Add(method);
                         guards.Add(method.MakeGenericMethod(typeof(Batch)));
                     }
                 }

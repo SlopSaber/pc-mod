@@ -58,6 +58,26 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
             guards.AddRange(type.GetConstructors(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
         }
 
+        internal static string Concat(string prefix, string title, string separator, string value) {
+            bool admitted = false;
+            try {
+                admitted = value != null && value.Length >= 524288 && !string.IsNullOrEmpty(prefix)
+                    && !string.IsNullOrEmpty(title) && !string.IsNullOrEmpty(separator)
+                    && (long)prefix.Length + title.Length + separator.Length + value.Length <= int.MaxValue / 2
+                    && !Thread.CurrentThread.IsThreadPoolThread && IsUnchanged();
+            } catch { }
+            if (!admitted) { return string.Concat(prefix, title, separator, value); }
+
+            Task<string> task = null;
+            try { Queue(prefix, title, separator, value, out task); } catch { }
+            if (task == null) { return string.Concat(prefix, title, separator, value); }
+            return task.GetAwaiter().GetResult();
+        }
+
+        private static void Queue(string prefix, string title, string separator, string value, out Task<string> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => string.Concat(prefix, title, separator, value), out task);
+        }
+
         static partial void AddRuntimeGuards(List<MethodBase> guards, ref bool supported);
     }
 }

@@ -1,4 +1,4 @@
-﻿using BeatSaberMarkupLanguage;
+using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
 using HMUI;
 using ScoreSaber.Features.Leaderboards.Domain;
@@ -142,6 +142,6 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
             button.gameObject.GetComponent<HoverHint>().enabled = value;
         }
 
-        private static void SetFancyText(CurvedTextMeshPro text, string title, string value) => text.text = $"<color=#6F6F6F>{title}:</color> {value}";
+        private static void SetFancyText(CurvedTextMeshPro text, string title, string value) => text.text = ScoreDetailNamePreparation.Concat("<color=#6F6F6F>", title, ":</color> ", value);
     }
 }

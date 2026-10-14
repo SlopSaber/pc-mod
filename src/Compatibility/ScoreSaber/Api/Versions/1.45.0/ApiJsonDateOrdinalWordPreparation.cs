@@ -23,9 +23,9 @@ namespace ScoreSaber.Core.Api {
             equal = false;
             string text;
             try {
-                if (Thread.CurrentThread.IsThreadPoolThread || !Supported || word == null || start < 0 || !IsUnchanged()) { return false; }
+                if (!ApiJsonNumericPreparation.IsActive || Thread.CurrentThread.IsThreadPoolThread || !Supported || word == null || start < 0) { return false; }
                 text = ApiJsonDateLexicalPreparation.MatchText(span);
-                if (text == null || word.Length < 524288 || span.Length - start < word.Length) { return false; }
+                if (text == null || word.Length < 524288 || span.Length - start < word.Length || !IsUnchanged()) { return false; }
                 for (int at = 0; at < 1024; at++) { if (text[start + at] != word[at]) { return false; } }
             } catch { return false; }
             Task<bool> task = null;

@@ -30,6 +30,7 @@ namespace ScoreSaber.Core.Api {
                     typeof(NumberFormatInfo).GetProperty("NegativeSign")?.GetGetMethod(),
                     typeof(NumberFormatInfo).GetProperty("IsReadOnly")?.GetGetMethod(),
                     AccessTools.Method(typeof(string), "op_Equality", new[] { typeof(string), typeof(string) }),
+                    AccessTools.Method(typeof(string), "op_Inequality", new[] { typeof(string), typeof(string) }),
                     AccessTools.Method(typeof(string), "Equals", new[] { typeof(string), typeof(string) }),
                     typeof(CoreCharSpan).GetProperty("Length")?.GetGetMethod(),
                     typeof(CoreCharSpan).GetProperty("Item")?.GetGetMethod(),

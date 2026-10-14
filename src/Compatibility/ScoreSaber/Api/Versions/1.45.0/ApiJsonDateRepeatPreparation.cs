@@ -12,24 +12,52 @@ using CoreCharSpan = ScoreSaberCore::System.ReadOnlySpan<char>;
 namespace ScoreSaber.Core.Api {
     internal static class ApiJsonDateRepeatPreparation {
         [ThreadStatic] private static string Current;
+        [ThreadStatic] private static bool Active;
         internal static MethodInfo FormatTarget;
         internal static MethodInfo RepeatTarget;
+        internal static MethodInfo ExpandedTarget;
         private static MethodBase[] Guards;
         private static readonly bool Ready = Initialize();
         internal static bool Supported => Ready && FormatTarget != null && RepeatTarget != null;
 
         internal static string GetFormatRoot() => Current;
 
-        internal static void Enter(string format, out string previous) {
-            previous = Current;
+        internal readonly struct Scope {
+            internal readonly string Previous;
+            internal readonly bool WasActive;
+            internal Scope(string previous, bool wasActive) { Previous = previous; WasActive = wasActive; }
+        }
+
+        internal static void Enter(string format, out Scope previous) {
+            previous = new Scope(Current, Active);
             Current = null;
+            Active = false;
             try {
-                if (ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
-                    && format != null && format.Length >= 524288) { Current = format; }
+                Active = ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread;
+                if (Active && format != null && format.Length >= 524288) { Current = format; }
             } catch { }
         }
 
-        internal static void Exit(string previous) => Current = previous;
+        internal static void Exit(Scope previous) {
+            Current = previous.Previous;
+            Active = previous.WasActive;
+        }
+
+        internal static void RecordExpandedRoot(string text) {
+            try {
+                if (!Active) { return; }
+                Current = null;
+                if (ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && ExpandedUnchanged() && text != null && text.Length >= 524288) { Current = text; }
+            } catch { Current = null; }
+        }
+
+        internal static bool ExpandedUnchanged() {
+            HarmonyLib.Patches info = Harmony.GetPatchInfo(ExpandedTarget);
+            return info != null && info.Prefixes.Count == 0 && info.Postfixes.Count == 1
+                && info.Transpilers.Count == 0 && info.Finalizers.Count == 0
+                && info.Postfixes[0].PatchMethod == ApiJsonDateExpandedRootPatch.PostfixMethod;
+        }
 
         internal static bool TryPrepare(CoreCharSpan span, int position, char pattern, out int result) {
             result = 0;
@@ -74,6 +102,7 @@ namespace ScoreSaber.Core.Api {
         }
 
         private static bool IsUnchanged() {
+            if (!ExpandedUnchanged()) { return false; }
             HarmonyLib.Patches format = Harmony.GetPatchInfo(FormatTarget);
             HarmonyLib.Patches repeat = Harmony.GetPatchInfo(RepeatTarget);
             if (format == null || format.Prefixes.Count != 1 || format.Postfixes.Count != 0
@@ -96,8 +125,10 @@ namespace ScoreSaber.Core.Api {
                 if (date == null) { return false; }
                 FormatTarget = AccessTools.Method(date, "Format", new[] { typeof(DateTime), typeof(string), typeof(IFormatProvider), typeof(TimeSpan) });
                 RepeatTarget = AccessTools.Method(date, "ParseRepeatPattern", new[] { typeof(CoreCharSpan), typeof(int), typeof(char) });
+                ExpandedTarget = AccessTools.Method(date, "GetRealFormat", new[] { typeof(CoreCharSpan), typeof(System.Globalization.DateTimeFormatInfo) });
                 if (!Matches(FormatTarget, 174, "83ff23a69ec7bf2812639135a4f558e58e9ed8e8c726fbf6d104f4023bdf624c")
-                    || !Matches(RepeatTarget, 38, "779c428a81ba0725fd2e1f5a397bb944d7c08f970525f452151b9a6458ef88bd")) { return false; }
+                    || !Matches(RepeatTarget, 38, "779c428a81ba0725fd2e1f5a397bb944d7c08f970525f452151b9a6458ef88bd")
+                    || !Matches(ExpandedTarget, 360, "1fc04d3912122e138f62e0f838608b962b8687cd155debab5adad3f682cad680")) { return false; }
                 var guards = new List<MethodBase> {
                     typeof(string).GetProperty("Length")?.GetGetMethod(),
                     typeof(string).GetProperty("Chars")?.GetGetMethod(),
@@ -109,6 +140,7 @@ namespace ScoreSaber.Core.Api {
                 AddDeclaredGuards(guards, typeof(ApiJsonDateRepeatPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateFormatScopePatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateRepeatPatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateExpandedRootPatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateSpanStringPreparation));
                 AddDeclaredGuards(guards, typeof(ReplayStorageService));
                 foreach (MethodBase method in guards) { if (method == null) { return false; } }
@@ -150,11 +182,19 @@ namespace ScoreSaber.Core.Api {
         internal static readonly MethodInfo FinalizerMethod = AccessTools.Method(typeof(ApiJsonDateFormatScopePatch), "Finalizer");
         private static bool Prepare() => ApiJsonDateRepeatPreparation.Supported;
         private static MethodBase TargetMethod() => ApiJsonDateRepeatPreparation.FormatTarget;
-        private static void Prefix(string __1, out string __state) => ApiJsonDateRepeatPreparation.Enter(__1, out __state);
-        private static Exception Finalizer(string __state, Exception __exception) {
+        private static void Prefix(string __1, out ApiJsonDateRepeatPreparation.Scope __state) => ApiJsonDateRepeatPreparation.Enter(__1, out __state);
+        private static Exception Finalizer(ApiJsonDateRepeatPreparation.Scope __state, Exception __exception) {
             ApiJsonDateRepeatPreparation.Exit(__state);
             return __exception;
         }
+    }
+
+    [HarmonyPatch]
+    internal static class ApiJsonDateExpandedRootPatch {
+        internal static readonly MethodInfo PostfixMethod = AccessTools.Method(typeof(ApiJsonDateExpandedRootPatch), "Postfix");
+        private static bool Prepare() => ApiJsonDateRepeatPreparation.Supported;
+        private static MethodBase TargetMethod() => ApiJsonDateRepeatPreparation.ExpandedTarget;
+        private static void Postfix(string __result) => ApiJsonDateRepeatPreparation.RecordExpandedRoot(__result);
     }
 
     [HarmonyPatch]

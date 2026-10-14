@@ -99,6 +99,7 @@ namespace ScoreSaber.Core.Api {
         }
 
         private static bool IsUnchanged() {
+            if (!ApiJsonDateRepeatPreparation.ExpandedUnchanged()) { return false; }
             HarmonyLib.Patches quote = Harmony.GetPatchInfo(Target);
             HarmonyLib.Patches format = Harmony.GetPatchInfo(ApiJsonDateRepeatPreparation.FormatTarget);
             if (quote == null || quote.Prefixes.Count != 1 || quote.Postfixes.Count != 0
@@ -135,6 +136,7 @@ namespace ScoreSaber.Core.Api {
                 AddDeclaredGuards(guards, typeof(ApiJsonDateLiteralPatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateRepeatPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateFormatScopePatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateExpandedRootPatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateSpanStringPreparation));
                 AddDeclaredGuards(guards, typeof(ReplayStorageService));
                 foreach (MethodBase method in guards) { if (method == null) { return false; } }

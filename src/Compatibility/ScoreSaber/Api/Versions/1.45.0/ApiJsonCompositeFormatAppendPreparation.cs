@@ -14,7 +14,7 @@ namespace ScoreSaber.Core.Api {
 
         internal static bool IsAccepted() {
             if (!Supported) { return false; }
-            Patches info = Harmony.GetPatchInfo(Target);
+            HarmonyLib.Patches info = Harmony.GetPatchInfo(Target);
             if (info == null) { return true; }
             return Rewritten && info.Prefixes.Count == 0 && info.Postfixes.Count == 0
                 && info.Finalizers.Count == 0 && info.Transpilers.Count == 1

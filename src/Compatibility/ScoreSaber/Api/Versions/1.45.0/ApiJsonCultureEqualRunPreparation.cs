@@ -12,6 +12,7 @@ namespace ScoreSaber.Core.Api {
     internal static class ApiJsonCultureEqualRunPreparation {
         internal static MethodInfo Target;
         internal static bool Rewritten;
+        private static FieldInfo Locale;
         private static readonly MethodBase[] Guards = Initialize();
         internal static bool Supported => Guards != null;
 
@@ -36,6 +37,61 @@ namespace ScoreSaber.Core.Api {
             }
             count = task.GetAwaiter().GetResult();
             return true;
+        }
+
+        private struct HeadingCounts {
+            internal int First;
+            internal int Second;
+        }
+
+        private static bool TryPrepareHeadings(string first, int start1, int end1, string second, int start2, int end2,
+            int locale, out int count1, out int count2) {
+            count1 = 0;
+            count2 = 0;
+            try {
+                if (!ApiJsonNumericPreparation.IsActive || Thread.CurrentThread.IsThreadPoolThread || !Supported
+                    || first == null || second == null || start1 < 0 || start2 < 0
+                    || end1 < start1 || end2 < start2
+                    || end1 - start1 < 524288 || end2 - start2 < 524288 || !IsUnchanged()
+                    || end1 > first.Length || end2 > second.Length) { return false; }
+                for (int at = 0; at < 1024; at++) {
+                    if (!IsExtender(first[start1 + at], locale) || !IsExtender(second[start2 + at], locale)) { return false; }
+                }
+            } catch { return false; }
+            Task<HeadingCounts> task = null;
+            try { QueueHeadings(first, start1, end1, second, start2, end2, locale, out task); }
+            catch { }
+            if (task == null) { return false; }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            HeadingCounts result = task.GetAwaiter().GetResult();
+            count1 = result.First;
+            count2 = result.Second;
+            return true;
+        }
+
+        private static bool IsExtender(char value, int locale) {
+            return (value == 8213 && locale == 16) || value == 12293 || value == 12337 || value == 12338
+                || value == 12445 || value == 12446 || value == 12540 || value == 12541 || value == 12542
+                || value == 65148 || value == 65149 || value == 65392;
+        }
+
+        private static HeadingCounts ComputeHeadings(string first, int start1, int end1, string second,
+            int start2, int end2, int locale) {
+            int count1 = 0;
+            int count2 = 0;
+            while (start1 + count1 < end1 && IsExtender(first[start1 + count1], locale)) { count1++; }
+            while (start2 + count2 < end2 && IsExtender(second[start2 + count2], locale)) { count2++; }
+            return new HeadingCounts { First = count1, Second = count2 };
+        }
+
+        private static void QueueHeadings(string first, int start1, int end1, string second, int start2, int end2,
+            int locale, out Task<HeadingCounts> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
+                () => ComputeHeadings(first, start1, end1, second, start2, end2, locale), out task);
         }
 
         private static bool IsUnchanged() {
@@ -69,8 +125,17 @@ namespace ScoreSaber.Core.Api {
                     if (BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant()
                         != "a9d8a461aaeea2971985a6f37974154457c7399b2da94fb6449a19d289625b48") { return null; }
                 }
+                MethodInfo classifier = AccessTools.Method(collator, "GetExtenderType", new[] { typeof(int) });
+                Locale = AccessTools.Field(collator, "lcid");
+                if (Locale == null || Locale.IsStatic || !Locale.IsInitOnly || Locale.FieldType != typeof(int)) { return null; }
+                bytes = classifier?.GetMethodBody()?.GetILAsByteArray();
+                if (bytes == null || bytes.Length != 174) { return null; }
+                using (SHA256 hash = SHA256.Create()) {
+                    if (BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant()
+                        != "f0b723a552e46931af04d3e18b87ee0609e354230c930b4d565324dbeaf301cf") { return null; }
+                }
                 var guards = new MethodBase[] {
-                    typeof(string).GetProperty("Length")?.GetGetMethod(), typeof(string).GetProperty("Chars")?.GetGetMethod()
+                    classifier, typeof(string).GetProperty("Length")?.GetGetMethod(), typeof(string).GetProperty("Chars")?.GetGetMethod()
                 };
                 foreach (MethodBase method in guards) { if (method == null) { return null; } }
                 return guards;
@@ -82,6 +147,8 @@ namespace ScoreSaber.Core.Api {
             Rewritten = false;
             if (!Supported || code.Count != 1171 || code[174].opcode != OpCodes.Br_S
                 || code[175].opcode != OpCodes.Ldarg_2 || code[196].opcode != OpCodes.Ldarg_2) { return code; }
+            if (code[38].opcode != OpCodes.Br_S || code[66].opcode != OpCodes.Ldc_I4_0) { return code; }
+            CodeInstruction afterHeadings = code[66];
             foreach (CodeInstruction instruction in code) { if (instruction.blocks.Count != 0) { return code; } }
             Label fallback = generator.DefineLabel();
             Label finished = generator.DefineLabel();
@@ -100,6 +167,25 @@ namespace ScoreSaber.Core.Api {
                 new CodeInstruction(OpCodes.Starg_S, (byte)2),
                 new CodeInstruction(OpCodes.Ldarg_S, (byte)5), new CodeInstruction(OpCodes.Ldloc, count), new CodeInstruction(OpCodes.Add),
                 new CodeInstruction(OpCodes.Starg_S, (byte)5), new CodeInstruction(OpCodes.Br, finished)
+            });
+            Label headingFallback = generator.DefineLabel();
+            Label headingsFinished = generator.DefineLabel();
+            afterHeadings.labels.Add(headingsFinished);
+            LocalBuilder secondCount = generator.DeclareLocal(typeof(int));
+            var headingFirst = new CodeInstruction(OpCodes.Ldarg_1);
+            headingFirst.labels.AddRange(code[38].labels); code[38].labels.Clear();
+            code[38].labels.Add(headingFallback);
+            code.InsertRange(38, new[] {
+                headingFirst, new CodeInstruction(OpCodes.Ldarg_2), new CodeInstruction(OpCodes.Ldloc_3),
+                new CodeInstruction(OpCodes.Ldarg_S, (byte)4), new CodeInstruction(OpCodes.Ldarg_S, (byte)5),
+                CodeInstruction.LoadLocal(4), new CodeInstruction(OpCodes.Ldarg_0), new CodeInstruction(OpCodes.Ldfld, Locale),
+                new CodeInstruction(OpCodes.Ldloca, count), new CodeInstruction(OpCodes.Ldloca, secondCount),
+                new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ApiJsonCultureEqualRunPreparation), "TryPrepareHeadings")),
+                new CodeInstruction(OpCodes.Brfalse, headingFallback),
+                new CodeInstruction(OpCodes.Ldarg_2), new CodeInstruction(OpCodes.Ldloc, count), new CodeInstruction(OpCodes.Add),
+                new CodeInstruction(OpCodes.Starg_S, (byte)2),
+                new CodeInstruction(OpCodes.Ldarg_S, (byte)5), new CodeInstruction(OpCodes.Ldloc, secondCount), new CodeInstruction(OpCodes.Add),
+                new CodeInstruction(OpCodes.Starg_S, (byte)5), new CodeInstruction(OpCodes.Br, headingsFinished)
             });
             Rewritten = true;
             return code;

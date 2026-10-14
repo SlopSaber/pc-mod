@@ -21,17 +21,35 @@ namespace ScoreSaber.Core.Api {
         }
 
         private delegate void ReleaseBuilder(StringBuilder builder);
+        private delegate StringBuilder AcquireBuilder(int capacity);
         [ThreadStatic] private static Frame Current;
+        [ThreadStatic] private static StringBuilder KnownCached;
+        [ThreadStatic] private static ulong Generation;
         internal static MethodInfo AcquireTarget;
         internal static MethodInfo ReleaseTarget;
         internal static MethodInfo StringTarget;
         internal static MethodInfo BufferTarget;
+        internal static MethodInfo FormatterTarget;
         internal static bool Rewritten;
+        internal static bool FormatterRewritten;
         private static ConstructorInfo Constructor;
+        private static FieldInfo CachedField;
+        private static AcquireBuilder Acquire;
         private static MethodInfo[] DateMethods;
         private static MethodBase[] Guards;
         private static readonly ReleaseBuilder Release = Initialize();
         internal static bool Supported => Release != null && Guards != null;
+
+        internal readonly struct ReleaseState {
+            internal readonly StringBuilder Candidate;
+            internal readonly ulong Version;
+            internal ReleaseState(StringBuilder candidate, ulong version) { Candidate = candidate; Version = version; }
+        }
+
+        private static void InvalidateCache() {
+            KnownCached = null;
+            Generation = unchecked(Generation + 1);
+        }
 
         internal static Frame Enter() {
             Frame previous = Current;
@@ -49,10 +67,12 @@ namespace ScoreSaber.Core.Api {
         }
 
         private static void Retire(Frame frame) {
+            InvalidateCache();
             for (; frame != null; frame = frame.Previous) { frame.Retired = true; frame.Builder = null; }
         }
 
         internal static void BeforeAcquire() {
+            InvalidateCache();
             if (Current != null) { Current.Builder = null; }
         }
 
@@ -64,9 +84,50 @@ namespace ScoreSaber.Core.Api {
         }
 
         internal static void Revoke(StringBuilder builder) {
+            InvalidateCache();
             for (Frame frame = Current; frame != null; frame = frame.Previous) {
                 if (ReferenceEquals(frame.Builder, builder)) { frame.Retired = true; frame.Builder = null; }
             }
+        }
+
+        internal static ReleaseState BeforeRelease(StringBuilder builder) {
+            StringBuilder candidate = null;
+            try {
+                Frame frame = Current;
+                if (builder != null && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
+                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && Supported && Rewritten && FormatterRewritten && IsUnchanged()) { candidate = builder; }
+            } catch { }
+            Revoke(builder);
+            return new ReleaseState(candidate, Generation);
+        }
+
+        internal static void AfterRelease(ReleaseState state) {
+            try {
+                if (state.Candidate != null && state.Version == Generation && IsUnchanged()
+                    && ReferenceEquals(CachedField.GetValue(null), state.Candidate) && state.Version == Generation) {
+                    KnownCached = state.Candidate;
+                }
+            } catch { InvalidateCache(); }
+        }
+
+        internal static StringBuilder AcquireForFormatter(int capacity) {
+            StringBuilder candidate = null;
+            Frame frame = Current;
+            ulong version = Generation;
+            try {
+                if (frame != null && !frame.Retired && ApiJsonNumericPreparation.IsActive
+                    && !Thread.CurrentThread.IsThreadPoolThread && Supported && Rewritten && FormatterRewritten && IsUnchanged()) {
+                    candidate = KnownCached;
+                }
+            } catch { }
+            KnownCached = null;
+            StringBuilder builder = Acquire(capacity);
+            try {
+                if (candidate != null && ReferenceEquals(builder, candidate) && ReferenceEquals(Current, frame)
+                    && !frame.Retired && Generation == unchecked(version + 1) && IsUnchanged()) { Record(builder); }
+            } catch { }
+            return builder;
         }
 
         internal static bool TryPrepare(StringBuilder builder, out string result) {
@@ -111,16 +172,17 @@ namespace ScoreSaber.Core.Api {
 
         private static bool IsUnchanged() {
             if (!Exact(AcquireTarget, ApiJsonDateBuilderAcquirePatch.PrefixMethod, null, ApiJsonDateBuilderAcquirePatch.TranspilerMethod, null)
-                || !Exact(ReleaseTarget, ApiJsonDateBuilderReleasePatch.PrefixMethod, null, null, null)
+                || !Exact(ReleaseTarget, ApiJsonDateBuilderReleasePatch.PrefixMethod, ApiJsonDateBuilderReleasePatch.PostfixMethod, null, null)
                 || !Exact(StringTarget, ApiJsonDateBuilderStringPatch.PrefixMethod, null, null, null)
                 || !Exact(BufferTarget, ApiJsonDateBuilderBufferPatch.PrefixMethod, null, null, null)
                 || !Exact(ApiJsonDateRepeatPreparation.FormatTarget, ApiJsonDateFormatScopePatch.PrefixMethod, null, null, ApiJsonDateFormatScopePatch.FinalizerMethod)
                 || !Exact(ApiJsonDateRepeatPreparation.RepeatTarget, ApiJsonDateRepeatPatch.PrefixMethod, null, null, null)
                 || !Exact(ApiJsonDateRepeatPreparation.ExpandedTarget, null, ApiJsonDateExpandedRootPatch.PostfixMethod, null, null)
-                || !Exact(ApiJsonDateLiteralPreparation.Target, ApiJsonDateLiteralPatch.PrefixMethod, null, null, null)) { return false; }
+                || !Exact(ApiJsonDateLiteralPreparation.Target, ApiJsonDateLiteralPatch.PrefixMethod, null, null, null)
+                || !Exact(FormatterTarget, null, null, ApiJsonDateBuilderFormatterPatch.TranspilerMethod, null)) { return false; }
             foreach (MethodInfo method in DateMethods) {
                 if (method != ApiJsonDateRepeatPreparation.FormatTarget && method != ApiJsonDateRepeatPreparation.RepeatTarget
-                    && method != ApiJsonDateRepeatPreparation.ExpandedTarget && method != ApiJsonDateLiteralPreparation.Target
+                    && method != ApiJsonDateRepeatPreparation.ExpandedTarget && method != ApiJsonDateLiteralPreparation.Target && method != FormatterTarget
                     && Harmony.GetPatchInfo(method) != null) { return false; }
             }
             foreach (MethodBase method in Guards) {
@@ -141,8 +203,12 @@ namespace ScoreSaber.Core.Api {
                 StringTarget = AccessTools.Method(cache, "GetStringAndRelease", new[] { typeof(StringBuilder) });
                 BufferTarget = AccessTools.PropertyGetter(typeof(StringBuilder), "RemainingCurrentChunk");
                 MethodInfo customized = AccessTools.Method(date, "FormatCustomized", new[] { typeof(DateTime), typeof(CoreCharSpan), typeof(System.Globalization.DateTimeFormatInfo), typeof(TimeSpan), typeof(StringBuilder) });
+                FormatterTarget = customized;
+                CachedField = AccessTools.Field(cache, "t_cachedInstance");
                 Constructor = typeof(StringBuilder).GetConstructor(new[] { typeof(int) });
                 if (Constructor == null
+                    || CachedField == null || CachedField.FieldType != typeof(StringBuilder) || !CachedField.IsStatic
+                    || !CachedField.IsDefined(typeof(ThreadStaticAttribute), false)
                     || !Matches(AcquireTarget, 48, "23dc66369232639fc9ac2ef31ee62d07d4399275b11fb76e7ecde0f05c32f254")
                     || !Matches(ReleaseTarget, 20, "e3deac9fc6f1fc1179028038c7c643b700cfe2e0a14850334fbe33edd5015742")
                     || !Matches(StringTarget, 13, "0e3b70cc753a9f635c0050a462b2770b08a012af977e45625008bd3a48c9d1af")
@@ -155,6 +221,7 @@ namespace ScoreSaber.Core.Api {
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderReleasePatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderStringPatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderBufferPatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderFormatterPatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateRepeatPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateFormatScopePatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateLiteralPreparation));
@@ -165,6 +232,10 @@ namespace ScoreSaber.Core.Api {
                 var release = new DynamicMethod("ReleaseOwnedDateBuilder", typeof(void), new[] { typeof(StringBuilder) }, typeof(ApiJsonDateBuilderOutputPreparation), true);
                 ILGenerator il = release.GetILGenerator();
                 il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Call, ReleaseTarget); il.Emit(OpCodes.Ret);
+                var acquire = new DynamicMethod("AcquireTrackedDateBuilder", typeof(StringBuilder), new[] { typeof(int) }, typeof(ApiJsonDateBuilderOutputPreparation), true);
+                ILGenerator acquireIl = acquire.GetILGenerator();
+                acquireIl.Emit(OpCodes.Ldarg_0); acquireIl.Emit(OpCodes.Call, AcquireTarget); acquireIl.Emit(OpCodes.Ret);
+                Acquire = (AcquireBuilder)acquire.CreateDelegate(typeof(AcquireBuilder));
                 return (ReleaseBuilder)release.CreateDelegate(typeof(ReleaseBuilder));
             } catch { return null; }
         }
@@ -194,6 +265,15 @@ namespace ScoreSaber.Core.Api {
             return code;
         }
 
+        internal static IEnumerable<CodeInstruction> RewriteFormatter(IEnumerable<CodeInstruction> instructions) {
+            var code = new List<CodeInstruction>(instructions);
+            FormatterRewritten = false;
+            if (!Supported || code.Count != 666 || code[10].opcode != OpCodes.Call || !Equals(code[10].operand, AcquireTarget)) { return code; }
+            code[10].operand = AccessTools.Method(typeof(ApiJsonDateBuilderOutputPreparation), "AcquireForFormatter");
+            FormatterRewritten = true;
+            return code;
+        }
+
         private static bool Matches(MethodInfo method, int length, string expected) {
             byte[] bytes = method?.GetMethodBody()?.GetILAsByteArray();
             if (bytes == null || bytes.Length != length) { return false; }
@@ -214,9 +294,21 @@ namespace ScoreSaber.Core.Api {
     [HarmonyPatch]
     internal static class ApiJsonDateBuilderReleasePatch {
         internal static readonly MethodInfo PrefixMethod = AccessTools.Method(typeof(ApiJsonDateBuilderReleasePatch), "Prefix");
+        internal static readonly MethodInfo PostfixMethod = AccessTools.Method(typeof(ApiJsonDateBuilderReleasePatch), "Postfix");
         private static bool Prepare() => ApiJsonDateBuilderOutputPreparation.Supported;
         private static MethodBase TargetMethod() => ApiJsonDateBuilderOutputPreparation.ReleaseTarget;
-        private static void Prefix(StringBuilder __0) => ApiJsonDateBuilderOutputPreparation.Revoke(__0);
+        private static void Prefix(StringBuilder __0, out ApiJsonDateBuilderOutputPreparation.ReleaseState __state)
+            => __state = ApiJsonDateBuilderOutputPreparation.BeforeRelease(__0);
+        private static void Postfix(ApiJsonDateBuilderOutputPreparation.ReleaseState __state)
+            => ApiJsonDateBuilderOutputPreparation.AfterRelease(__state);
+    }
+
+    [HarmonyPatch]
+    internal static class ApiJsonDateBuilderFormatterPatch {
+        internal static readonly MethodInfo TranspilerMethod = AccessTools.Method(typeof(ApiJsonDateBuilderFormatterPatch), "Transpiler");
+        private static bool Prepare() => ApiJsonDateBuilderOutputPreparation.Supported;
+        private static MethodBase TargetMethod() => ApiJsonDateBuilderOutputPreparation.FormatterTarget;
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) => ApiJsonDateBuilderOutputPreparation.RewriteFormatter(instructions);
     }
 
     [HarmonyPatch]

@@ -56,7 +56,9 @@ namespace ScoreSaber.Core.Api {
             }
             Result result = task.GetAwaiter().GetResult();
             if (result.Consumed == 0) { return false; }
-            for (int at = 0; at < result.Written; at++) { builder.Append(values[at]); }
+            if (!ApiJsonDateBuilderOutputPreparation.TryAppendLiteral(builder, values, result.Written)) {
+                for (int at = 0; at < result.Written; at++) { builder.Append(values[at]); }
+            }
             consumed = result.Consumed;
             return true;
         }

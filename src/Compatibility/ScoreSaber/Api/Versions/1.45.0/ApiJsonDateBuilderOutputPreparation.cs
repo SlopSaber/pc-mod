@@ -154,6 +154,36 @@ namespace ScoreSaber.Core.Api {
             return true;
         }
 
+        internal static bool TryAppendLiteral(StringBuilder builder, char[] values, int count) {
+            bool admitted = false;
+            try {
+                Frame frame = Current;
+                admitted = builder != null && values != null && count >= 524288 && count <= values.Length
+                    && count <= int.MaxValue / 2 && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
+                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && Supported && Rewritten && IsUnchanged();
+            } catch { }
+            if (!admitted) { return false; }
+            Task<string> task = null;
+            try { QueueLiteral(builder, values, count, out task); }
+            catch { }
+            if (task == null) { return false; }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            task.GetAwaiter().GetResult();
+            return true;
+        }
+
+        private static void QueueLiteral(StringBuilder builder, char[] values, int count, out Task<string> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => {
+                for (int at = 0; at < count; at++) { builder.Append(values[at]); }
+                return null;
+            }, out task);
+        }
+
         private static void Queue(StringBuilder builder, out Task<string> task) {
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => builder.ToString(), out task);
         }

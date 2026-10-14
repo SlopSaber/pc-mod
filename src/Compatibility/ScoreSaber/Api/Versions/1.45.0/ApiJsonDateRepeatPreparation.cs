@@ -21,6 +21,7 @@ namespace ScoreSaber.Core.Api {
         private static readonly bool Ready = Initialize();
         internal static bool Supported => Ready && FormatTarget != null && RepeatTarget != null;
 
+        internal static bool CanPrepareOwnedFormat() => Supported && IsUnchanged();
         internal static string GetFormatRoot() => Current;
 
         internal readonly struct Scope {

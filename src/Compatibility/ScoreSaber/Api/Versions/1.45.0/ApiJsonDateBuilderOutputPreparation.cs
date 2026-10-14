@@ -214,6 +214,64 @@ namespace ScoreSaber.Core.Api {
             }, out task);
         }
 
+        internal static int TryAppendFormatLiteral(CoreCharSpan span, int position, StringBuilder builder) {
+            string text = null;
+            int start = 0;
+            int length = 0;
+            try {
+                string candidate = ApiJsonDateRepeatPreparation.GetFormatRoot();
+                Frame frame = Current;
+                if (builder != null && candidate != null && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
+                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && Supported && Rewritten && FormatterRewritten && IsUnchanged()
+                    && ApiJsonDateRepeatPreparation.CanPrepareOwnedFormat() && ApiJsonDateSpanStringPreparation.CanReadImmutableSpan()) {
+                    length = span.Length;
+                    if (position >= 0 && position < length && length <= int.MaxValue / 2 && length - position >= 524288) {
+                        CoreCharSpan whole = ScoreSaberCore::System.MemoryExtensions.AsSpan(candidate);
+                        if (ScoreSaberCore::System.MemoryExtensions.Overlaps(whole, span, out start)
+                            && start >= 0 && length <= whole.Length - start && LooksLongFormatLiteral(candidate, start, position)) { text = candidate; }
+                    }
+                }
+            } catch { }
+            if (text == null) { return 0; }
+            Task<int> task = null;
+            try { QueueFormatLiteral(builder, text, start, length, position, out task); }
+            catch { }
+            if (task == null) { return 0; }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            return task.GetAwaiter().GetResult();
+        }
+
+        private static void QueueFormatLiteral(StringBuilder builder, string text, int start, int length, int position, out Task<int> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => {
+                int at = position;
+                while (at < length && IsLiteralFormatCharacter(text[start + at])) {
+                    builder.Append(text[start + at]);
+                    at++;
+                }
+                return at - position;
+            }, out task);
+        }
+
+        private static bool LooksLongFormatLiteral(string text, int start, int position) {
+            for (int at = 0; at < 1024; at++) {
+                if (!IsLiteralFormatCharacter(text[start + position + at])) { return false; }
+            }
+            return true;
+        }
+
+        private static bool IsLiteralFormatCharacter(char value) {
+            switch (value) {
+                case '"': case '%': case '\'': case '/': case ':': case 'F': case 'H': case 'K': case 'M': case '\\':
+                case 'd': case 'f': case 'g': case 'h': case 'm': case 's': case 't': case 'y': case 'z': return false;
+                default: return true;
+            }
+        }
+
         private static void Queue(StringBuilder builder, out Task<string> task) {
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => builder.ToString(), out task);
         }
@@ -329,7 +387,7 @@ namespace ScoreSaber.Core.Api {
             return code;
         }
 
-        internal static IEnumerable<CodeInstruction> RewriteFormatter(IEnumerable<CodeInstruction> instructions) {
+        internal static IEnumerable<CodeInstruction> RewriteFormatter(IEnumerable<CodeInstruction> instructions, ILGenerator generator) {
             var code = new List<CodeInstruction>(instructions);
             FormatterRewritten = false;
             if (!Supported || code.Count != 666 || code[10].opcode != OpCodes.Call || !Equals(code[10].operand, AcquireTarget)) { return code; }
@@ -340,11 +398,35 @@ namespace ScoreSaber.Core.Api {
             foreach (int at in sites) {
                 if (code[at].opcode != OpCodes.Callvirt || !Equals(code[at].operand, append)) { return code; }
             }
+            MethodInfo appendCharacter = AccessTools.Method(typeof(StringBuilder), "Append", new[] { typeof(char) });
+            MethodInfo literal = AccessTools.Method(typeof(ApiJsonDateBuilderOutputPreparation), "TryAppendFormatLiteral");
+            if (generator == null || literal == null || code[650].opcode != OpCodes.Ldarg_S || code[38].opcode != OpCodes.Ldloc_S
+                || code[652].opcode != OpCodes.Callvirt || !Equals(code[652].operand, appendCharacter)
+                || code[654].opcode != OpCodes.Ldc_I4_1 || code[655].opcode != OpCodes.Stloc_S
+                || code[656].opcode != OpCodes.Ldloc_S || code[650].blocks.Count != 0 || code[656].blocks.Count != 0) { return code; }
+            Label fallback = generator.DefineLabel();
+            Label joined = generator.DefineLabel();
+            var prefix = new List<CodeInstruction> {
+                new CodeInstruction(OpCodes.Ldarg_1),
+                new CodeInstruction(code[38].opcode, code[38].operand),
+                new CodeInstruction(code[650].opcode, code[650].operand),
+                new CodeInstruction(OpCodes.Call, literal),
+                new CodeInstruction(OpCodes.Dup),
+                new CodeInstruction(OpCodes.Brfalse, fallback),
+                new CodeInstruction(code[655].opcode, code[655].operand),
+                new CodeInstruction(OpCodes.Br, joined),
+                new CodeInstruction(OpCodes.Pop)
+            };
+            prefix[0].labels.AddRange(code[650].labels);
+            code[650].labels.Clear();
+            prefix[8].labels.Add(fallback);
+            code[656].labels.Add(joined);
             code[10].operand = AccessTools.Method(typeof(ApiJsonDateBuilderOutputPreparation), "AcquireForFormatter");
             foreach (int at in sites) {
                 code[at].opcode = OpCodes.Call;
                 code[at].operand = wrapper;
             }
+            code.InsertRange(650, prefix);
             FormatterRewritten = true;
             return code;
         }
@@ -383,7 +465,7 @@ namespace ScoreSaber.Core.Api {
         internal static readonly MethodInfo TranspilerMethod = AccessTools.Method(typeof(ApiJsonDateBuilderFormatterPatch), "Transpiler");
         private static bool Prepare() => ApiJsonDateBuilderOutputPreparation.Supported;
         private static MethodBase TargetMethod() => ApiJsonDateBuilderOutputPreparation.FormatterTarget;
-        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) => ApiJsonDateBuilderOutputPreparation.RewriteFormatter(instructions);
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator) => ApiJsonDateBuilderOutputPreparation.RewriteFormatter(instructions, generator);
     }
 
     [HarmonyPatch]

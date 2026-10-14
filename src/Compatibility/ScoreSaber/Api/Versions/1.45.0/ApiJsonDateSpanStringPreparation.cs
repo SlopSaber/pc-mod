@@ -22,6 +22,14 @@ namespace ScoreSaber.Core.Api {
         private static readonly Allocate Allocator = Initialize();
         internal static bool Supported => Allocator != null && Guards != null && ApiJsonDateLexicalPreparation.Supported;
 
+        internal static bool CanReadImmutableSpan() {
+            if (!Supported) { return false; }
+            foreach (MethodBase method in Guards) {
+                if (Harmony.GetPatchInfo(method) != null) { return false; }
+            }
+            return true;
+        }
+
         internal static string Prepare(CoreCharSpan span, string candidate, int mode) {
             string root = null;
             int start = 0;

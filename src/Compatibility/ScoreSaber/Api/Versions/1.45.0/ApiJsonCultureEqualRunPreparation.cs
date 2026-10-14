@@ -94,6 +94,37 @@ namespace ScoreSaber.Core.Api {
                 () => ComputeHeadings(first, start1, end1, second, start2, end2, locale), out task);
         }
 
+        private static bool TryPrepareNuls(string value, int start, int end, out int count) {
+            count = 0;
+            try {
+                if (!ApiJsonNumericPreparation.IsActive || Thread.CurrentThread.IsThreadPoolThread || !Supported
+                    || value == null || start < 0 || end < start || end - start < 524288
+                    || !IsUnchanged() || end > value.Length) { return false; }
+                for (int at = 0; at < 1024; at++) { if (value[start + at] != '\0') { return false; } }
+            } catch { return false; }
+            Task<int> task = null;
+            try { QueueNuls(value, start, end, out task); }
+            catch { }
+            if (task == null) { return false; }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            count = task.GetAwaiter().GetResult();
+            return true;
+        }
+
+        private static void QueueNuls(string value, int start, int end, out Task<int> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => ComputeNuls(value, start, end), out task);
+        }
+
+        private static int ComputeNuls(string value, int start, int end) {
+            int count = 0;
+            while (start + count < end && value[start + count] == '\0') { count++; }
+            return count;
+        }
+
         private static bool IsUnchanged() {
             if (!Rewritten) { return false; }
             HarmonyLib.Patches info = Harmony.GetPatchInfo(Target);
@@ -134,8 +165,24 @@ namespace ScoreSaber.Core.Api {
                     if (BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant()
                         != "f0b723a552e46931af04d3e18b87ee0609e354230c930b4d565324dbeaf301cf") { return null; }
                 }
+                MethodInfo ignorable = AccessTools.Method(collator, "IsIgnorable", new[] { typeof(int), typeof(System.Globalization.CompareOptions) });
+                Type table = typeof(string).Assembly.GetType("Mono.Globalization.Unicode.MSCompatUnicodeTable");
+                MethodInfo tableIgnorable = table == null ? null : AccessTools.Method(table, "IsIgnorable", new[] { typeof(int), typeof(byte) });
+                MethodInfo[] nulMethods = { ignorable, tableIgnorable };
+                int[] nulSizes = { 41, 73 };
+                string[] nulHashes = {
+                    "ada63657178fb6ea84e309e476d02c324e82ff55834a92e66422d870fbc1a0bd",
+                    "4ebb2d9e7fe6f28e50e0800b2f68a48f0fb11d8b141cfc8360275aedecf51636"
+                };
+                for (int at = 0; at < nulMethods.Length; at++) {
+                    bytes = nulMethods[at]?.GetMethodBody()?.GetILAsByteArray();
+                    if (bytes == null || bytes.Length != nulSizes[at]) { return null; }
+                    using (SHA256 hash = SHA256.Create()) {
+                        if (BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant() != nulHashes[at]) { return null; }
+                    }
+                }
                 var guards = new MethodBase[] {
-                    classifier, typeof(string).GetProperty("Length")?.GetGetMethod(), typeof(string).GetProperty("Chars")?.GetGetMethod()
+                    classifier, ignorable, tableIgnorable, typeof(string).GetProperty("Length")?.GetGetMethod(), typeof(string).GetProperty("Chars")?.GetGetMethod()
                 };
                 foreach (MethodBase method in guards) { if (method == null) { return null; } }
                 return guards;
@@ -148,6 +195,9 @@ namespace ScoreSaber.Core.Api {
             if (!Supported || code.Count != 1171 || code[174].opcode != OpCodes.Br_S
                 || code[175].opcode != OpCodes.Ldarg_2 || code[196].opcode != OpCodes.Ldarg_2) { return code; }
             if (code[38].opcode != OpCodes.Br_S || code[66].opcode != OpCodes.Ldc_I4_0) { return code; }
+            if (code[90].opcode != OpCodes.Br_S || code[104].opcode != OpCodes.Br_S
+                || code[96].opcode != OpCodes.Brfalse_S || !Equals(code[96].operand, code[104].operand)) { return code; }
+            CodeInstruction firstNonIgnorable = code[96];
             CodeInstruction afterHeadings = code[66];
             foreach (CodeInstruction instruction in code) { if (instruction.blocks.Count != 0) { return code; } }
             Label fallback = generator.DefineLabel();
@@ -167,6 +217,33 @@ namespace ScoreSaber.Core.Api {
                 new CodeInstruction(OpCodes.Starg_S, (byte)2),
                 new CodeInstruction(OpCodes.Ldarg_S, (byte)5), new CodeInstruction(OpCodes.Ldloc, count), new CodeInstruction(OpCodes.Add),
                 new CodeInstruction(OpCodes.Starg_S, (byte)5), new CodeInstruction(OpCodes.Br, finished)
+            });
+            Label secondNuls = generator.DefineLabel();
+            Label secondNulFallback = generator.DefineLabel();
+            var secondNulFirst = new CodeInstruction(OpCodes.Ldarg_S, (byte)4);
+            secondNulFirst.labels.Add(secondNuls);
+            secondNulFirst.labels.AddRange(code[104].labels); code[104].labels.Clear();
+            code[104].labels.Add(secondNulFallback);
+            firstNonIgnorable.operand = secondNuls;
+            code.InsertRange(104, new[] {
+                secondNulFirst, new CodeInstruction(OpCodes.Ldarg_S, (byte)5), CodeInstruction.LoadLocal(4),
+                new CodeInstruction(OpCodes.Ldloca, count),
+                new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ApiJsonCultureEqualRunPreparation), "TryPrepareNuls")),
+                new CodeInstruction(OpCodes.Brfalse, secondNulFallback),
+                new CodeInstruction(OpCodes.Ldarg_S, (byte)5), new CodeInstruction(OpCodes.Ldloc, count), new CodeInstruction(OpCodes.Add),
+                new CodeInstruction(OpCodes.Starg_S, (byte)5)
+            });
+            Label firstNulFallback = generator.DefineLabel();
+            var firstNulFirst = new CodeInstruction(OpCodes.Ldarg_1);
+            firstNulFirst.labels.AddRange(code[90].labels); code[90].labels.Clear();
+            code[90].labels.Add(firstNulFallback);
+            code.InsertRange(90, new[] {
+                firstNulFirst, new CodeInstruction(OpCodes.Ldarg_2), new CodeInstruction(OpCodes.Ldloc_3),
+                new CodeInstruction(OpCodes.Ldloca, count),
+                new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ApiJsonCultureEqualRunPreparation), "TryPrepareNuls")),
+                new CodeInstruction(OpCodes.Brfalse, firstNulFallback),
+                new CodeInstruction(OpCodes.Ldarg_2), new CodeInstruction(OpCodes.Ldloc, count), new CodeInstruction(OpCodes.Add),
+                new CodeInstruction(OpCodes.Starg_S, (byte)2)
             });
             Label headingFallback = generator.DefineLabel();
             Label headingsFinished = generator.DefineLabel();

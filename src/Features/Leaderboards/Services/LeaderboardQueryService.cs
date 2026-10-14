@@ -1,4 +1,4 @@
-﻿using ScoreSaber.Core.Api;
+using ScoreSaber.Core.Api;
 using ScoreSaber.Core.Configuration;
 using ScoreSaber.Features.Players.Services;
 using ScoreSaber.Features.Replays;
@@ -27,7 +27,13 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             Plugin.Log.Debug("LeaderboardQueryService Setup");
         }
 
-        public async Task<LeaderboardMap> GetLeaderboardData(BeatmapLevel beatmapLevel, BeatmapKey beatmapKey, LeaderboardScreenScope scope, int page, bool filterAroundCountry, CancellationToken cancellationToken) {
+        public async Task<LeaderboardMap> GetLeaderboardData(BeatmapLevel beatmapLevel, BeatmapKey beatmapKey, LeaderboardScreenScope scope, int page, bool filterAroundCountry, CancellationToken cancellationToken) =>
+            (await GetLeaderboardDataCore(beatmapLevel, beatmapKey, scope, page, filterAroundCountry, cancellationToken, false, null)).Leaderboard;
+
+        internal Task<ScreenResult> GetLeaderboardDataForScreen(BeatmapLevel beatmapLevel, BeatmapKey beatmapKey, LeaderboardScreenScope scope, int page, bool filterAroundCountry, CancellationToken cancellationToken, string playerId) =>
+            GetLeaderboardDataCore(beatmapLevel, beatmapKey, scope, page, filterAroundCountry, cancellationToken, true, playerId);
+
+        private async Task<ScreenResult> GetLeaderboardDataCore(BeatmapLevel beatmapLevel, BeatmapKey beatmapKey, LeaderboardScreenScope scope, int page, bool filterAroundCountry, CancellationToken cancellationToken, bool preparePlayerIndex, string indexPlayerId) {
 
             LeaderboardQuery query = GetLeaderboardQuery(beatmapKey, scope, page, filterAroundCountry);
             GameSession session = _gameSessionService.GameSession;
@@ -64,7 +70,7 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                 string characteristic = beatmapKey.CharacteristicSerializedName();
                 System.Globalization.CultureInfo culture = System.Globalization.CultureInfo.CurrentCulture;
                 if (PreparedLeaderboardPlayerName.CanUseCulture(culture)) rowCulture = culture;
-                prepared = await LeaderboardScorePreparation.Queue(snapshot, replayPath, songHash, songName, difficulty, characteristic, rowCulture != null);
+                prepared = await LeaderboardScorePreparation.Queue(snapshot, replayPath, songHash, songName, difficulty, characteristic, rowCulture != null, preparePlayerIndex, indexPlayerId);
                 await IPA.Utilities.UnityGame.SwitchToMainThreadAsync();
                 ensureCurrent();
                 prepared.ThrowIfFailed();
@@ -78,7 +84,16 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                 ? new LeaderboardMap(snapshot, beatmapLevel, beatmapKey, snapshot.Leaderboard.MaxScore, _replayStorageService, ensureCurrent)
                 : new LeaderboardMap(snapshot, prepared.Scores, beatmapLevel, beatmapKey, ensureCurrent, rowCulture);
             ensureCurrent();
-            return leaderboard;
+            return new ScreenResult(leaderboard, prepared?.PlayerIndex);
+        }
+
+        internal sealed class ScreenResult {
+            internal readonly LeaderboardMap Leaderboard;
+            internal readonly int? PlayerIndex;
+            internal ScreenResult(LeaderboardMap leaderboard, int? playerIndex) {
+                Leaderboard = leaderboard;
+                PlayerIndex = playerIndex;
+            }
         }
 
         private LeaderboardQuery GetLeaderboardQuery(BeatmapKey beatmapKey, LeaderboardScreenScope scope, int page, bool filterAroundCountry) {

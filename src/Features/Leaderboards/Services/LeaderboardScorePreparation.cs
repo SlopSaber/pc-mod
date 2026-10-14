@@ -13,19 +13,27 @@ namespace ScoreSaber.Features.Leaderboards.Services {
         internal static Task<Result> Queue(LeaderboardSnapshot ownedSnapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic) =>
             Queue(ownedSnapshot, replayPath, songHash, songName, difficulty, characteristic, false);
 
-        internal static Task<Result> Queue(LeaderboardSnapshot ownedSnapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic, bool preparePlayerNames) {
+        internal static Task<Result> Queue(LeaderboardSnapshot ownedSnapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic, bool preparePlayerNames) =>
+            Queue(ownedSnapshot, replayPath, songHash, songName, difficulty, characteristic, preparePlayerNames, false, null);
+
+        internal static Task<Result> Queue(LeaderboardSnapshot ownedSnapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic, bool preparePlayerNames, bool preparePlayerIndex, string playerId) {
             var request = new Request(ownedSnapshot, replayPath, songHash, songName, difficulty, characteristic,
-                CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentCulture.Clone()), CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentUICulture.Clone()), preparePlayerNames);
+                CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentCulture.Clone()), CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentUICulture.Clone()), preparePlayerNames, preparePlayerIndex, playerId);
             return ReplayStorageService.QueueOwnedPreparation(request.Run);
         }
 
         private sealed class Request {
             private readonly bool _preparePlayerNames;
+            private readonly bool _preparePlayerIndex;
+            private readonly string _playerId;
             private readonly LeaderboardSnapshot _snapshot;
             private readonly string _replayPath, _songHash, _songName, _difficulty, _characteristic;
             private readonly CultureInfo _culture, _uiCulture;
 
-            internal Request(LeaderboardSnapshot snapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic, CultureInfo culture, CultureInfo uiCulture, bool preparePlayerNames) {
+            internal Request(LeaderboardSnapshot snapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic, CultureInfo culture, CultureInfo uiCulture, bool preparePlayerNames)
+                : this(snapshot, replayPath, songHash, songName, difficulty, characteristic, culture, uiCulture, preparePlayerNames, false, null) { }
+
+            internal Request(LeaderboardSnapshot snapshot, string replayPath, string songHash, string songName, string difficulty, string characteristic, CultureInfo culture, CultureInfo uiCulture, bool preparePlayerNames, bool preparePlayerIndex, string playerId) {
                 _snapshot = snapshot;
                 _replayPath = replayPath;
                 _songHash = songHash;
@@ -35,6 +43,8 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                 _culture = culture;
                 _uiCulture = uiCulture;
                 _preparePlayerNames = preparePlayerNames;
+                _preparePlayerIndex = preparePlayerIndex;
+                _playerId = playerId;
             }
 
             internal Result Run() {
@@ -48,13 +58,16 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                     }
 
                     var prepared = new PreparedLeaderboardScore[_snapshot.Scores.Items.Count];
+                    bool prepareIndex = _preparePlayerIndex && prepared.Length >= 4096;
+                    int playerIndex = -1;
                     for (int i = 0; i < prepared.Length; i++) {
                         LeaderboardScore score = _snapshot.Scores.Items[i];
                         score.Mods = new List<string>(score.Mods);
                         string modifierText = string.Join(",", score.Mods);
                         PreparedGameplayModifiers modifiers = score.Mods.Count == 0 ? null : ScoreSaberGameplayModifiers.Prepare(score.Mods.ToArray(), false);
                         double maxScore = _snapshot.Leaderboard.MaxScore * (modifiers?.TotalMultiplier ?? 1);
-                        bool hasLocalReplay = HasLocalReplay(score.Player.Id);
+                        string scorePlayerId = score.Player.Id;
+                        bool hasLocalReplay = HasLocalReplay(scorePlayerId);
                         score.Weight = Math.Round(score.Weight * 100, 2);
                         score.PP = Math.Round(score.PP, 2);
                         double accuracy = Math.Round((score.ModifiedScore / maxScore) * 100, 2);
@@ -63,8 +76,12 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                         }
                         PreparedLeaderboardPlayerName playerName = _preparePlayerNames ? PreparedLeaderboardPlayerName.TryCreate(score, modifierText, accuracy) : null;
                         prepared[i] = new PreparedLeaderboardScore(score, modifierText, modifiers, accuracy, hasLocalReplay, playerName);
+                        if (prepareIndex && playerIndex == -1) {
+                            try { if (scorePlayerId == _playerId) { playerIndex = i; } }
+                            catch { prepareIndex = false; }
+                        }
                     }
-                    return new Result(prepared);
+                    return new Result(prepared, null, prepareIndex ? (int?)playerIndex : null);
                 } catch (Exception error) {
                     return new Result(error: error);
                 } finally {
@@ -89,9 +106,14 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             internal PreparedLeaderboardScore[] Scores { get; }
             private readonly Exception _error;
 
-            internal Result(PreparedLeaderboardScore[] scores = null, Exception error = null) {
+            internal int? PlayerIndex { get; }
+
+            internal Result(PreparedLeaderboardScore[] scores = null, Exception error = null) : this(scores, error, null) { }
+
+            internal Result(PreparedLeaderboardScore[] scores, Exception error, int? playerIndex) {
                 Scores = scores;
                 _error = error;
+                PlayerIndex = playerIndex;
             }
 
             internal void ThrowIfFailed() {

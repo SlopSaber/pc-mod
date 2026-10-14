@@ -52,8 +52,11 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             bool filterAroundCountry = ShouldFilterAroundCountry(scope);
             string playerId = _gameSessionService.LocalPlayerInfo.playerId;
             LeaderboardMap leaderboard;
+            int? preparedPlayerIndex = null;
             try {
-                leaderboard = await _leaderboardQueryService.GetLeaderboardData(beatmapLevel, beatmapKey, scope, page, filterAroundCountry, cancellationToken);
+                LeaderboardQueryService.ScreenResult result = await _leaderboardQueryService.GetLeaderboardDataForScreen(beatmapLevel, beatmapKey, scope, page, filterAroundCountry, cancellationToken, playerId);
+                leaderboard = result.Leaderboard;
+                preparedPlayerIndex = result.PlayerIndex;
             } catch (GeneratedApiException ex) when (ex.GetType() == typeof(GeneratedApiException) && !string.IsNullOrEmpty(ex.Response)) {
                 cancellationToken.ThrowIfCancellationRequested();
                 int statusCode = ex.StatusCode;
@@ -88,7 +91,7 @@ namespace ScoreSaber.Features.Leaderboards.Services {
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            return CreateLoadedState(leaderboard, scope, filterAroundCountry, page, playerId);
+            return CreateLoadedState(leaderboard, scope, filterAroundCountry, page, playerId, preparedPlayerIndex);
         }
 
         internal Func<bool> CapturePublicationGuard(CancellationToken cancellationToken) {
@@ -103,8 +106,11 @@ namespace ScoreSaber.Features.Leaderboards.Services {
                 && session?.PlayerId == playerId && session?.SessionId == sessionId && session?.SessionKey == sessionKey && localPlayer?.playerId == localPlayerId;
         }
 
-        private LeaderboardScreenState CreateLoadedState(LeaderboardMap leaderboard, LeaderboardScreenScope scope, bool filterAroundCountry, int page, string playerId) {
-            int playerScoreIndex = Array.FindIndex(leaderboard.Scores, score => score.Score.Player.Id == playerId);
+        private LeaderboardScreenState CreateLoadedState(LeaderboardMap leaderboard, LeaderboardScreenScope scope, bool filterAroundCountry, int page, string playerId) =>
+            CreateLoadedState(leaderboard, scope, filterAroundCountry, page, playerId, null);
+
+        private LeaderboardScreenState CreateLoadedState(LeaderboardMap leaderboard, LeaderboardScreenScope scope, bool filterAroundCountry, int page, string playerId, int? preparedPlayerIndex) {
+            int playerScoreIndex = preparedPlayerIndex ?? Array.FindIndex(leaderboard.Scores, score => score.Score.Player.Id == playerId);
             bool canPage = CanPageScope(scope, filterAroundCountry);
             string rankedStatus = GetRankedStatus(leaderboard.LeaderboardInfo.Leaderboard);
             if (scope == LeaderboardScreenScope.AroundPlayer && playerScoreIndex == -1 && !filterAroundCountry) {

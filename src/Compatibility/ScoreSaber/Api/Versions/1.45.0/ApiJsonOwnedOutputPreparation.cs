@@ -43,10 +43,13 @@ namespace ScoreSaber.Core.Api {
             Scope previous = _scope;
             _scope = null;
             try {
-                if (ApiJsonEscapePreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread && IsUnchanged()) {
-                    _scope = new Scope(previous);
+                bool admitted = ApiJsonEscapePreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread && IsUnchanged();
+                if (admitted || previous != null) {
+                    _scope = new Scope(previous) { Retired = !admitted };
                 }
-            } catch { }
+            } catch {
+                for (Scope scope = previous; scope != null; scope = scope.Previous) { scope.Retired = true; }
+            }
             return previous;
         }
 

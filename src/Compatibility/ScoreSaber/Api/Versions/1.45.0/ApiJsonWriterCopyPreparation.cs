@@ -83,7 +83,9 @@ namespace ScoreSaber.Core.Api {
 
         private static void Write(TextWriter writer, char[] buffer, int start, int count) {
             Frame frame = _frame;
-            if (frame != null && ReferenceEquals(frame.Buffer, buffer)) { frame.Buffer = null; }
+            bool privateInput = frame != null && ReferenceEquals(frame.Buffer, buffer);
+            if (privateInput) { frame.Buffer = null; }
+            if (ApiJsonOwnedOutputPreparation.TryWriteArray(writer, buffer, start, count, privateInput)) { return; }
             writer.Write(buffer, start, count);
         }
 

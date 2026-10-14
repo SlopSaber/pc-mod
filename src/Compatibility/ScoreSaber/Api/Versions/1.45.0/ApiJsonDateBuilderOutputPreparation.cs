@@ -483,6 +483,7 @@ namespace ScoreSaber.Core.Api {
             if (bytes == null || bytes.Length != length) { return false; }
             using (SHA256 hash = SHA256.Create()) { return BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant() == expected; }
         }
+        internal static bool CanUseFormattingOutput() => Supported && Rewritten && IsUnchanged();
     }
 
     [HarmonyPatch]

@@ -26,7 +26,8 @@ namespace ScoreSaber.Core.Api {
             && ReaderBuffer != null && BufferArray != null && BufferArray.FieldType == typeof(char[]);
 
         internal static void Record(IArrayPool<char> pool, char[] buffer) {
-            if (pool != null || buffer == null || ApiJsonNumericPreparation.CurrentReader == null) {
+            if (pool != null || buffer == null || ApiJsonNumericPreparation.CurrentReader == null
+                || !ApiJsonPropertyNamePreparation.IsProtected) {
                 return;
             }
             try { Fresh.Add(buffer, PrivateBuffer); }
@@ -35,6 +36,12 @@ namespace ScoreSaber.Core.Api {
 
         internal static void Revoke(IArrayPool<char> pool, char[] buffer) {
             if (pool != null && buffer != null) {
+                Fresh.Remove(buffer);
+            }
+        }
+
+        internal static void Revoke(char[] buffer) {
+            if (buffer != null) {
                 Fresh.Remove(buffer);
             }
         }
@@ -65,7 +72,7 @@ namespace ScoreSaber.Core.Api {
         private static bool CanLease(char[] source, char[] destination) {
             try {
                 JsonTextReader reader = ApiJsonNumericPreparation.CurrentReader;
-                return Supported && reader != null && reader.ArrayPool == null
+                return Supported && ApiJsonPropertyNamePreparation.IsProtected && reader != null && reader.ArrayPool == null
                     && Fresh.TryGetValue(source, out _) && Fresh.TryGetValue(destination, out _)
                     && ReferenceEquals(BufferArray.GetValue(ReaderBuffer.GetValue(reader)), source);
             } catch { return false; }
@@ -97,7 +104,8 @@ namespace ScoreSaber.Core.Api {
             } catch { return null; }
         }
 
-        internal static bool IsPrivateBuffer(char[] buffer) => Fresh.TryGetValue(buffer, out _);
+        internal static bool IsPrivateBuffer(char[] buffer) => ApiJsonPropertyNamePreparation.IsProtected
+            && buffer != null && Fresh.TryGetValue(buffer, out _);
 
         private sealed class Receipt { }
     }

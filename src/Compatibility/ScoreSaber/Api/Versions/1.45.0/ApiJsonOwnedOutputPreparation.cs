@@ -133,6 +133,40 @@ namespace ScoreSaber.Core.Api {
             return true;
         }
 
+        internal static bool TryWriteIndent(TextWriter writer, char[] pattern, int newlineLength, int indentCount) {
+            StringWriter owned = writer as StringWriter;
+            try {
+                long total = (long)newlineLength + indentCount;
+                if (owned == null || pattern == null || newlineLength < 0 || indentCount < 0
+                    || pattern.Length > 4096 || pattern.Length != (long)newlineLength + 12
+                    || total > int.MaxValue / 2 || !CanUse(owned, (int)total, true)
+                    || !ApiJsonOutputIndentPatch.IsUnchanged()) { return false; }
+            } catch { return false; }
+            Task<bool> task = null;
+            try {
+                var ownedPattern = new char[pattern.Length];
+                Array.Copy(pattern, ownedPattern, ownedPattern.Length);
+                QueueIndent(owned, ownedPattern, newlineLength, indentCount, out task);
+            } catch { }
+            if (task == null) { return false; }
+            Wait(task);
+            task.GetAwaiter().GetResult();
+            return true;
+        }
+
+        private static void QueueIndent(StringWriter writer, char[] pattern, int newlineLength, int indentCount,
+            out Task<bool> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => WriteIndent(writer, pattern, newlineLength, indentCount), out task);
+        }
+
+        private static bool WriteIndent(StringWriter writer, char[] pattern, int newlineLength, int indentCount) {
+            writer.Write(pattern, 0, newlineLength + Math.Min(indentCount, 12));
+            while ((indentCount -= 12) > 0) {
+                writer.Write(pattern, newlineLength, Math.Min(indentCount, 12));
+            }
+            return true;
+        }
+
         private static void QueueString(StringWriter writer, string text, out Task<bool> task) {
             ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => { writer.Write(text); return true; }, out task);
         }
@@ -221,7 +255,7 @@ namespace ScoreSaber.Core.Api {
                 guards.Add(AccessTools.Method(typeof(JsonConvert).Assembly.GetType("Newtonsoft.Json.Utilities.JavaScriptUtils"),
                     "GetCharEscapeFlags", new[] { typeof(StringEscapeHandling), typeof(char) }));
                 foreach (Type owner in new[] { typeof(ApiJsonOwnedOutputPreparation), typeof(ApiJsonWriterCopyPreparation),
-                    typeof(ApiJsonOutputProducerPatch), typeof(ApiJsonOutputStringPatch), typeof(ApiJsonOutputMaterializePatch), typeof(ApiJsonOutputBuilderEscapePatch) }) {
+                    typeof(ApiJsonOutputProducerPatch), typeof(ApiJsonOutputStringPatch), typeof(ApiJsonOutputMaterializePatch), typeof(ApiJsonOutputBuilderEscapePatch), typeof(ApiJsonOutputIndentPatch) }) {
                     guards.AddRange(owner.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
                     foreach (Type nested in owner.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) {
                         guards.AddRange(nested.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
@@ -244,6 +278,9 @@ namespace ScoreSaber.Core.Api {
         private static void AddCopyGuards(List<MethodBase> guards) {
             Type chars = typeof(char).MakePointerType();
             Type bytes = typeof(byte).MakePointerType();
+            guards.Add(AccessTools.Method(typeof(Math), "Min", new[] { typeof(int), typeof(int) }));
+            guards.Add(AccessTools.Method(typeof(Math), "Max", new[] { typeof(int), typeof(int) }));
+            guards.Add(AccessTools.Method(typeof(Array), "Copy", new[] { typeof(Array), typeof(Array), typeof(int) }));
             guards.Add(AccessTools.Method(typeof(string), "wstrcpy", new[] { chars, chars, typeof(int) }));
             guards.Add(AccessTools.Method(typeof(string), "FastAllocateString", new[] { typeof(int) }));
             guards.Add(AccessTools.PropertyGetter(typeof(string), "Length"));
@@ -325,5 +362,73 @@ namespace ScoreSaber.Core.Api {
         private static bool Prepare() => ApiJsonOwnedOutputPreparation.Supported;
         private static MethodBase TargetMethod() => ApiJsonOwnedOutputPreparation.ExposeBuilder;
         private static void Prefix(StringWriter __instance) => ApiJsonOwnedOutputPreparation.Revoke(__instance);
+    }
+
+    [HarmonyPatch]
+    internal static class ApiJsonOutputIndentPatch {
+        private static MethodInfo Target;
+        private static MethodInfo SetPattern;
+        private static MethodInfo Top;
+        private static FieldInfo Writer;
+        private static FieldInfo Pattern;
+        internal static readonly MethodInfo TranspilerMethod = AccessTools.Method(typeof(ApiJsonOutputIndentPatch), "Transpiler");
+        private static readonly bool Ready = Initialize();
+        private static bool Rewritten;
+
+        private static bool Prepare() => Ready && ApiJsonOwnedOutputPreparation.Supported;
+        private static MethodBase TargetMethod() => Target;
+
+        internal static bool IsUnchanged() {
+            if (!Ready || !Rewritten) { return false; }
+            HarmonyLib.Patches info = Harmony.GetPatchInfo(Target);
+            return info != null && info.Prefixes.Count == 0 && info.Postfixes.Count == 0 && info.Finalizers.Count == 0
+                && info.Transpilers.Count == 1 && info.Transpilers[0].PatchMethod == TranspilerMethod
+                && Harmony.GetPatchInfo(SetPattern) == null && Harmony.GetPatchInfo(Top) == null;
+        }
+
+        private static bool Initialize() {
+            try {
+                if (typeof(JsonConvert).Module.ModuleVersionId != new Guid("8b49fe53-8c3d-48f9-b341-caeedeff32a2")) { return false; }
+                Target = AccessTools.Method(typeof(JsonTextWriter), "WriteIndent", Type.EmptyTypes);
+                SetPattern = AccessTools.Method(typeof(JsonTextWriter), "SetIndentChars", Type.EmptyTypes);
+                Top = AccessTools.PropertyGetter(typeof(JsonWriter), "Top");
+                Writer = AccessTools.Field(typeof(JsonTextWriter), "_writer");
+                Pattern = AccessTools.Field(typeof(JsonTextWriter), "_indentChars");
+                return Matches(Target, 87, "950d1a974a91a320762977712b50ddfddce8b746852291efcac18302a08febce")
+                    && Matches(SetPattern, 116, "455a5c7be0d4f6dfceb358f4b71e2937358b19bd13ffbeab6c620738422cf8e8")
+                    && Matches(Top, 33, "491f88079a0c57adc9d80dc47b9e397c83d423662e4eae0692c5c64eb78bfcab")
+                    && Writer?.FieldType == typeof(TextWriter) && Pattern?.FieldType == typeof(char[]);
+            } catch { return false; }
+        }
+
+        private static bool Matches(MethodInfo method, int length, string expected) {
+            byte[] bytes = method?.GetMethodBody()?.GetILAsByteArray();
+            if (bytes == null || bytes.Length != length) { return false; }
+            using (SHA256 hash = SHA256.Create()) {
+                return BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant() == expected;
+            }
+        }
+
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator) {
+            var code = new List<CodeInstruction>(instructions);
+            Rewritten = false;
+            if (!Ready || code.Count != 38 || code[7].opcode != OpCodes.Call || !Equals(code[7].operand, SetPattern)
+                || code[8].opcode != OpCodes.Stloc_1 || code[9].opcode != OpCodes.Ldarg_0) { return code; }
+            foreach (CodeInstruction instruction in code) { if (instruction.blocks.Count != 0) { return code; } }
+            Label fallback = generator.DefineLabel();
+            var first = new CodeInstruction(OpCodes.Ldarg_0);
+            first.labels.AddRange(code[9].labels);
+            code[9].labels.Clear();
+            code[9].labels.Add(fallback);
+            code.InsertRange(9, new[] {
+                first, new CodeInstruction(OpCodes.Ldfld, Writer), new CodeInstruction(OpCodes.Ldarg_0),
+                new CodeInstruction(OpCodes.Ldfld, Pattern), new CodeInstruction(OpCodes.Ldloc_1),
+                new CodeInstruction(OpCodes.Ldloc_0),
+                new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ApiJsonOwnedOutputPreparation), "TryWriteIndent")),
+                new CodeInstruction(OpCodes.Brfalse, fallback), new CodeInstruction(OpCodes.Ret)
+            });
+            Rewritten = true;
+            return code;
+        }
     }
 }

@@ -179,7 +179,7 @@ namespace ScoreSaber.Core.Api {
             new Caller("ReadNumberValue", 185, 625, 9, "679744dfe8b4f41c5914cde91be0c3bbf0773ef30a2ea827fac73e24e01b026c", ReadType()),
             new Caller("ParseValue", 282, 692, 9, "5054fa3681cc4f4f95ebf881721e42e97d81211d9bdac2acb06c56eca55daf47"),
             new Caller("ParseComment", 174, 423, 10, "1200b35cf5e4b44a69eb4f428c0f3d5344ff775b9cb875e4ceecf308a7ed5ca2", typeof(bool)),
-            new Caller("ReadStringIntoBuffer", 300, 759, 7, "f0a7f881376b6b65110e136070155d5dd8c5b02d4721cb7fb4b45a8b176dcb59", typeof(char), ReadType()),
+            new Caller("ReadStringIntoBuffer", 300, 759, 7, "f0a7f881376b6b65110e136070155d5dd8c5b02d4721cb7fb4b45a8b176dcb59", typeof(char)),
         };
         private static Type ReadType() => typeof(JsonTextReader).Assembly.GetType("Newtonsoft.Json.ReadType");
 

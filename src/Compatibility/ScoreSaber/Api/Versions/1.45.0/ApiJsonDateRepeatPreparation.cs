@@ -117,10 +117,20 @@ namespace ScoreSaber.Core.Api {
 
         private static void AddDeclaredGuards(List<MethodBase> guards, Type type) {
             const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-            guards.AddRange(type.GetMethods(flags));
+            foreach (MethodInfo method in type.GetMethods(flags)) {
+                guards.Add(method);
+                if (method.IsGenericMethodDefinition && method.GetGenericArguments().Length == 1) {
+                    guards.Add(method.MakeGenericMethod(typeof(int)));
+                }
+            }
             guards.AddRange(type.GetConstructors(flags));
             if (type.TypeInitializer != null) { guards.Add(type.TypeInitializer); }
-            foreach (Type nested in type.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) { AddDeclaredGuards(guards, nested); }
+            foreach (Type nested in type.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) {
+                AddDeclaredGuards(guards, nested);
+                if (nested.IsGenericTypeDefinition && nested.GetGenericArguments().Length == 1) {
+                    AddDeclaredGuards(guards, nested.MakeGenericType(typeof(int)));
+                }
+            }
         }
 
         private static bool Matches(MethodInfo method, int length, string expected) {

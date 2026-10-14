@@ -248,7 +248,7 @@ namespace ScoreSaber.Core.Api {
             foreach (MethodBase method in Guards) {
                 if (method != BufferTarget && Harmony.GetPatchInfo(method) != null) { return false; }
             }
-            return true;
+            return ApiJsonOwnedOutputPreparation.CanUseOriginalBuilder();
         }
 
         private static ReleaseBuilder Initialize() {
@@ -277,6 +277,7 @@ namespace ScoreSaber.Core.Api {
                 var guards = new List<MethodBase> { AccessTools.PropertyGetter(typeof(ApiJsonNumericPreparation), "IsActive") };
                 AddDeclaredGuards(guards, typeof(StringBuilder));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderOutputPreparation));
+                AddDeclaredGuards(guards, typeof(ApiJsonOwnedOutputPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderAcquirePatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderReleasePatch));
                 AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderStringPatch));

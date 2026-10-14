@@ -26,6 +26,7 @@ namespace ScoreSaber.Core.Api {
         private static readonly bool Ready = Initialize();
         private static bool Rewritten;
         internal static bool Supported => Ready;
+        internal static bool CanUseOriginalBuilder() => IsUnchanged();
 
         [ThreadStatic]
         private static Scope _scope;

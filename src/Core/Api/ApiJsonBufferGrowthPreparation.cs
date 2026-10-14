@@ -97,6 +97,8 @@ namespace ScoreSaber.Core.Api {
             } catch { return null; }
         }
 
+        internal static bool IsPrivateBuffer(char[] buffer) => Fresh.TryGetValue(buffer, out _);
+
         private sealed class Receipt { }
     }
 

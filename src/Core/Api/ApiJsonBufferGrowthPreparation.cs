@@ -40,12 +40,6 @@ namespace ScoreSaber.Core.Api {
             }
         }
 
-        internal static void Revoke(char[] buffer) {
-            if (buffer != null) {
-                Fresh.Remove(buffer);
-            }
-        }
-
         internal static void Copy(Array source, Array destination, int count, IArrayPool<char> pool) {
             if (pool != null || count < 524288 || !(source is char[] from) || !(destination is char[] to)
                 || ReferenceEquals(from, to) || count > from.Length || count > to.Length
@@ -106,6 +100,12 @@ namespace ScoreSaber.Core.Api {
 
         internal static bool IsPrivateBuffer(char[] buffer) => ApiJsonPropertyNamePreparation.IsProtected
             && buffer != null && Fresh.TryGetValue(buffer, out _);
+
+        internal static void Revoke(char[] buffer) {
+            if (buffer != null) {
+                Fresh.Remove(buffer);
+            }
+        }
 
         private sealed class Receipt { }
     }

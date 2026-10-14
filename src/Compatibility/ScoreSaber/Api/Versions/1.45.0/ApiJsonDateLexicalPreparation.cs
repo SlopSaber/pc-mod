@@ -26,6 +26,15 @@ namespace ScoreSaber.Core.Api {
 
         internal static bool Supported => Matcher != null && _guards != null;
 
+        internal static string MatchText(CoreCharSpan span) {
+            try {
+                if (!ApiJsonNumericPreparation.IsActive || Thread.CurrentThread.IsThreadPoolThread
+                    || !Supported || !IsUnchanged(0)) { return null; }
+                return _text != null && Matcher(span, _text) ? _text
+                    : _format != null && Matcher(span, _format) ? _format : null;
+            } catch { return null; }
+        }
+
         internal static Scope Begin(string text, string format) {
             if (!ApiJsonNumericPreparation.IsActive || Thread.CurrentThread.IsThreadPoolThread) { return default; }
             var state = new Scope(_text, _format, true);

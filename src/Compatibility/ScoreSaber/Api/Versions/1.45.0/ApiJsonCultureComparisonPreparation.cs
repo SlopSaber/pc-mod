@@ -16,6 +16,8 @@ namespace ScoreSaber.Core.Api {
         private static FieldInfo ModeChecked;
         private static FieldInfo ManagedMode;
         private static FieldInfo Collator;
+        private static Type CollatorType;
+        private static FieldInfo CollatorTextInfo;
         private static FieldInfo InvariantMode;
         private static HashSet<MethodBase> OwnedPatches;
         private static readonly MethodBase[] Guards = Initialize();
@@ -31,8 +33,13 @@ namespace ScoreSaber.Core.Api {
                     || length1 < 524288 || length2 < 524288 || ((int)options & ~0x2000001f) != 0
                     || !IsUnchanged() || info.GetType() != typeof(CompareInfo)
                     || length1 != first.Length || length2 != second.Length
-                    || !(bool)ModeChecked.GetValue(null) || (bool)InvariantMode.GetValue(null)
-                    || ((bool)ManagedMode.GetValue(null) && Collator.GetValue(info) == null)) { return false; }
+                    || !(bool)ModeChecked.GetValue(null) || (bool)InvariantMode.GetValue(null)) { return false; }
+                if ((bool)ManagedMode.GetValue(null)) {
+                    object collator = Collator.GetValue(info);
+                    if (collator == null || collator.GetType() != CollatorType) { return false; }
+                    object textInfo = CollatorTextInfo.GetValue(collator);
+                    if (textInfo == null || textInfo.GetType() != typeof(TextInfo)) { return false; }
+                }
                 for (int at = 0; at < 1024; at++) { if (first[at] != second[at]) { return false; } }
                 culture = CultureInfo.GetCultureInfo(info.Name);
                 if (culture.GetType() != typeof(CultureInfo) || !culture.IsReadOnly
@@ -83,10 +90,13 @@ namespace ScoreSaber.Core.Api {
                 ModeChecked = AccessTools.Field(typeof(CompareInfo), "managedCollationChecked");
                 ManagedMode = AccessTools.Field(typeof(CompareInfo), "managedCollation");
                 Collator = AccessTools.Field(typeof(CompareInfo), "collator");
+                CollatorType = typeof(string).Assembly.GetType("Mono.Globalization.Unicode.SimpleCollator");
+                CollatorTextInfo = CollatorType == null ? null : AccessTools.Field(CollatorType, "textInfo");
                 InvariantMode = mode == null ? null : AccessTools.Field(mode, "<Invariant>k__BackingField");
                 if (ModeChecked == null || !ModeChecked.IsStatic || ModeChecked.FieldType != typeof(bool)
                     || ManagedMode == null || !ManagedMode.IsStatic || ManagedMode.FieldType != typeof(bool)
-                    || Collator == null || Collator.IsStatic
+                    || Collator == null || Collator.IsStatic || CollatorType == null
+                    || CollatorTextInfo == null || CollatorTextInfo.IsStatic || !CollatorTextInfo.IsInitOnly || CollatorTextInfo.FieldType != typeof(TextInfo)
                     || InvariantMode == null || !InvariantMode.IsStatic || !InvariantMode.IsInitOnly || InvariantMode.FieldType != typeof(bool)) { return null; }
                 if (!Matches(Target, 42, "b8274dc68a66b4f8d027aebb71ebfc0a8a011c9f415978b36f9c17e1f0b9c16d")) { return null; }
                 var guards = new MethodBase[] {

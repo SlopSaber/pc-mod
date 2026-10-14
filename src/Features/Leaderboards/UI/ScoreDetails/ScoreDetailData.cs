@@ -31,7 +31,7 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
             return new ScoreDetailData {
                 Score = scoreMap,
                 PlayerId = score.Player.Id,
-                PlayerNameText = $"{score.Player.Name}'s score",
+                PlayerNameText = ScoreDetailNamePreparation.Concat(score.Player.Name, "'s score"),
                 DeviceHMDText = score.Device.HMD ?? VRDevices.GetLegacyHMDFriendlyName(score.LegacyHMDId),
                 DeviceControllerLeftText = string.IsNullOrEmpty(score.Device.ControllerLeft) ? "N/A" : score.Device.ControllerLeft,
                 DeviceControllerRightText = string.IsNullOrEmpty(score.Device.ControllerRight) ? "N/A" : score.Device.ControllerRight,

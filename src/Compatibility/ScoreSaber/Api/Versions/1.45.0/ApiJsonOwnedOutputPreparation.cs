@@ -276,7 +276,7 @@ namespace ScoreSaber.Core.Api {
             } catch { return false; }
         }
 
-        private static void AddCopyGuards(List<MethodBase> guards) {
+        internal static void AddCopyGuards(List<MethodBase> guards) {
             Type chars = typeof(char).MakePointerType();
             Type bytes = typeof(byte).MakePointerType();
             guards.Add(AccessTools.Method(typeof(Math), "Min", new[] { typeof(int), typeof(int) }));

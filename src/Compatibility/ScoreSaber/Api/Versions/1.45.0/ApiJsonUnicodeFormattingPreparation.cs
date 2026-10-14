@@ -123,9 +123,7 @@ namespace ScoreSaber.Core.Api {
 
         private static bool IsUnchanged() {
             if (!Rewritten) { return false; }
-            HarmonyLib.Patches info = Harmony.GetPatchInfo(Target);
-            if (info == null || info.Prefixes.Count != 0 || info.Postfixes.Count != 0 || info.Finalizers.Count != 0
-                || info.Transpilers.Count != 1 || info.Transpilers[0].PatchMethod != ApiJsonUnicodeFormattingPatch.TranspilerMethod) { return false; }
+            if (!ApiJsonUnicodeFormattingPatch.IsWriterUnchanged(Target)) { return false; }
             foreach (MethodBase method in Guards) { if (Harmony.GetPatchInfo(method) != null) { return false; } }
             return true;
         }
@@ -148,6 +146,7 @@ namespace ScoreSaber.Core.Api {
                     AccessTools.Method(typeof(ApiJsonEscapePreparation), "Serialize"),
                     AccessTools.PropertyGetter(typeof(ApiJsonEscapePreparation), "IsActive") };
                 guards.AddRange(typeof(ApiJsonUnicodeFormattingPreparation).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
+                guards.AddRange(typeof(ApiJsonUnicodeFormattingPatch).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
                 foreach (Type nested in typeof(ApiJsonUnicodeFormattingPreparation).GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) {
                     guards.AddRange(nested.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
                     guards.AddRange(nested.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
@@ -189,13 +188,27 @@ namespace ScoreSaber.Core.Api {
             code[160].operand = AccessTools.Method(typeof(ApiJsonUnicodeFormattingPreparation), "Write");
             code.InsertRange(160, new[] { first, new CodeInstruction(OpCodes.Ldloc_2), new CodeInstruction(OpCodes.Ldarg_S, (byte)5) });
             Rewritten = true;
-            return code;
+            return ApiJsonWriterCopyPreparation.Rewrite(code);
         }
     }
 
     [HarmonyPatch]
     internal static class ApiJsonUnicodeFormattingPatch {
         internal static readonly MethodInfo TranspilerMethod = AccessTools.Method(typeof(ApiJsonUnicodeFormattingPatch), "Transpiler");
+        private static readonly MethodInfo PrefixMethod = AccessTools.Method(typeof(ApiJsonUnicodeFormattingPatch), "Prefix");
+        private static readonly MethodInfo FinalizerMethod = AccessTools.Method(typeof(ApiJsonUnicodeFormattingPatch), "Finalizer");
+        internal static bool IsWriterUnchanged(MethodBase target) {
+            HarmonyLib.Patches info = Harmony.GetPatchInfo(target);
+            return info != null && info.Prefixes.Count == 1 && info.Prefixes[0].PatchMethod == PrefixMethod
+                && info.Postfixes.Count == 0 && info.Finalizers.Count == 1 && info.Finalizers[0].PatchMethod == FinalizerMethod
+                && info.Transpilers.Count == 1 && info.Transpilers[0].PatchMethod == TranspilerMethod;
+        }
+        private static void Prefix(string __1, IArrayPool<char> __6, out ApiJsonWriterCopyPreparation.Frame __state)
+            => __state = ApiJsonWriterCopyPreparation.Enter(__1, __6);
+        private static Exception Finalizer(Exception __exception, ApiJsonWriterCopyPreparation.Frame __state) {
+            ApiJsonWriterCopyPreparation.Restore(__state);
+            return __exception;
+        }
         private static bool Prepare() => ApiJsonUnicodeFormattingPreparation.Supported;
         private static MethodBase TargetMethod() => ApiJsonUnicodeFormattingPreparation.Target;
         private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)

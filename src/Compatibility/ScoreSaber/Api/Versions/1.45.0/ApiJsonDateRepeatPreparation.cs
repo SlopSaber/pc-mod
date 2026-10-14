@@ -25,11 +25,14 @@ namespace ScoreSaber.Core.Api {
         internal readonly struct Scope {
             internal readonly string Previous;
             internal readonly bool WasActive;
-            internal Scope(string previous, bool wasActive) { Previous = previous; WasActive = wasActive; }
+            internal readonly ApiJsonDateBuilderOutputPreparation.Frame PreviousOutput;
+            internal Scope(string previous, bool wasActive, ApiJsonDateBuilderOutputPreparation.Frame previousOutput) {
+                Previous = previous; WasActive = wasActive; PreviousOutput = previousOutput;
+            }
         }
 
         internal static void Enter(string format, out Scope previous) {
-            previous = new Scope(Current, Active);
+            previous = new Scope(Current, Active, ApiJsonDateBuilderOutputPreparation.Enter());
             Current = null;
             Active = false;
             try {
@@ -39,6 +42,7 @@ namespace ScoreSaber.Core.Api {
         }
 
         internal static void Exit(Scope previous) {
+            ApiJsonDateBuilderOutputPreparation.Exit(previous.PreviousOutput);
             Current = previous.Previous;
             Active = previous.WasActive;
         }

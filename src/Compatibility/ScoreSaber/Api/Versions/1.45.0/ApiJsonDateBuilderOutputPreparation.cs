@@ -1,0 +1,237 @@
+extern alias ScoreSaberCore;
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using HarmonyLib;
+using ScoreSaber.Features.Replays;
+using CoreCharSpan = ScoreSaberCore::System.ReadOnlySpan<char>;
+
+namespace ScoreSaber.Core.Api {
+    internal static class ApiJsonDateBuilderOutputPreparation {
+        internal sealed class Frame {
+            internal readonly Frame Previous;
+            internal bool Retired;
+            internal StringBuilder Builder;
+            internal Frame(Frame previous, bool retired) { Previous = previous; Retired = retired; }
+        }
+
+        private delegate void ReleaseBuilder(StringBuilder builder);
+        [ThreadStatic] private static Frame Current;
+        internal static MethodInfo AcquireTarget;
+        internal static MethodInfo ReleaseTarget;
+        internal static MethodInfo StringTarget;
+        internal static MethodInfo BufferTarget;
+        internal static bool Rewritten;
+        private static ConstructorInfo Constructor;
+        private static MethodInfo[] DateMethods;
+        private static MethodBase[] Guards;
+        private static readonly ReleaseBuilder Release = Initialize();
+        internal static bool Supported => Release != null && Guards != null;
+
+        internal static Frame Enter() {
+            Frame previous = Current;
+            Current = null;
+            try {
+                bool admitted = ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread && Supported;
+                if (admitted || previous != null) { Current = new Frame(previous, !admitted); }
+            } catch { Retire(previous); }
+            return previous;
+        }
+
+        internal static void Exit(Frame previous) {
+            if (Current != null) { Current.Retired = true; Current.Builder = null; }
+            Current = previous;
+        }
+
+        private static void Retire(Frame frame) {
+            for (; frame != null; frame = frame.Previous) { frame.Retired = true; frame.Builder = null; }
+        }
+
+        internal static void BeforeAcquire() {
+            if (Current != null) { Current.Builder = null; }
+        }
+
+        internal static void Record(StringBuilder builder) {
+            try {
+                Frame frame = Current;
+                if (frame != null && !frame.Retired && builder != null && builder.Length == 0) { frame.Builder = builder; }
+            } catch { if (Current != null) { Current.Builder = null; } }
+        }
+
+        internal static void Revoke(StringBuilder builder) {
+            for (Frame frame = Current; frame != null; frame = frame.Previous) {
+                if (ReferenceEquals(frame.Builder, builder)) { frame.Retired = true; frame.Builder = null; }
+            }
+        }
+
+        internal static bool TryPrepare(StringBuilder builder, out string result) {
+            result = null;
+            bool admitted = false;
+            try {
+                Frame frame = Current;
+                admitted = builder != null && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
+                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && Supported && Rewritten && builder.Length >= 524288 && builder.Length <= int.MaxValue / 2 && IsUnchanged();
+            } catch { }
+            if (!admitted) { return false; }
+            Task<string> task = null;
+            try { Queue(builder, out task); }
+            catch { }
+            if (task == null) { return false; }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            result = task.GetAwaiter().GetResult();
+            Release(builder);
+            return true;
+        }
+
+        private static void Queue(StringBuilder builder, out Task<string> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => builder.ToString(), out task);
+        }
+
+        private static bool Exact(MethodBase target, MethodInfo prefix, MethodInfo postfix, MethodInfo transpiler, MethodInfo finalizer) {
+            HarmonyLib.Patches info = Harmony.GetPatchInfo(target);
+            return info != null && info.Prefixes.Count == (prefix == null ? 0 : 1)
+                && info.Postfixes.Count == (postfix == null ? 0 : 1)
+                && info.Transpilers.Count == (transpiler == null ? 0 : 1)
+                && info.Finalizers.Count == (finalizer == null ? 0 : 1)
+                && (prefix == null || info.Prefixes[0].PatchMethod == prefix)
+                && (postfix == null || info.Postfixes[0].PatchMethod == postfix)
+                && (transpiler == null || info.Transpilers[0].PatchMethod == transpiler)
+                && (finalizer == null || info.Finalizers[0].PatchMethod == finalizer);
+        }
+
+        private static bool IsUnchanged() {
+            if (!Exact(AcquireTarget, ApiJsonDateBuilderAcquirePatch.PrefixMethod, null, ApiJsonDateBuilderAcquirePatch.TranspilerMethod, null)
+                || !Exact(ReleaseTarget, ApiJsonDateBuilderReleasePatch.PrefixMethod, null, null, null)
+                || !Exact(StringTarget, ApiJsonDateBuilderStringPatch.PrefixMethod, null, null, null)
+                || !Exact(BufferTarget, ApiJsonDateBuilderBufferPatch.PrefixMethod, null, null, null)
+                || !Exact(ApiJsonDateRepeatPreparation.FormatTarget, ApiJsonDateFormatScopePatch.PrefixMethod, null, null, ApiJsonDateFormatScopePatch.FinalizerMethod)
+                || !Exact(ApiJsonDateRepeatPreparation.RepeatTarget, ApiJsonDateRepeatPatch.PrefixMethod, null, null, null)
+                || !Exact(ApiJsonDateRepeatPreparation.ExpandedTarget, null, ApiJsonDateExpandedRootPatch.PostfixMethod, null, null)
+                || !Exact(ApiJsonDateLiteralPreparation.Target, ApiJsonDateLiteralPatch.PrefixMethod, null, null, null)) { return false; }
+            foreach (MethodInfo method in DateMethods) {
+                if (method != ApiJsonDateRepeatPreparation.FormatTarget && method != ApiJsonDateRepeatPreparation.RepeatTarget
+                    && method != ApiJsonDateRepeatPreparation.ExpandedTarget && method != ApiJsonDateLiteralPreparation.Target
+                    && Harmony.GetPatchInfo(method) != null) { return false; }
+            }
+            foreach (MethodBase method in Guards) {
+                if (method != BufferTarget && Harmony.GetPatchInfo(method) != null) { return false; }
+            }
+            return true;
+        }
+
+        private static ReleaseBuilder Initialize() {
+            try {
+                if (IntPtr.Size != 8 || typeof(char).Module.ModuleVersionId != new Guid("41d29b35-2f6a-475a-b1bf-7c6628b82790")) { return null; }
+                Assembly core = typeof(char).Assembly;
+                Type cache = core.GetType("System.Text.StringBuilderCache");
+                Type date = core.GetType("System.DateTimeFormat");
+                if (cache == null || date == null) { return null; }
+                AcquireTarget = AccessTools.Method(cache, "Acquire", new[] { typeof(int) });
+                ReleaseTarget = AccessTools.Method(cache, "Release", new[] { typeof(StringBuilder) });
+                StringTarget = AccessTools.Method(cache, "GetStringAndRelease", new[] { typeof(StringBuilder) });
+                BufferTarget = AccessTools.PropertyGetter(typeof(StringBuilder), "RemainingCurrentChunk");
+                MethodInfo customized = AccessTools.Method(date, "FormatCustomized", new[] { typeof(DateTime), typeof(CoreCharSpan), typeof(System.Globalization.DateTimeFormatInfo), typeof(TimeSpan), typeof(StringBuilder) });
+                Constructor = typeof(StringBuilder).GetConstructor(new[] { typeof(int) });
+                if (Constructor == null
+                    || !Matches(AcquireTarget, 48, "23dc66369232639fc9ac2ef31ee62d07d4399275b11fb76e7ecde0f05c32f254")
+                    || !Matches(ReleaseTarget, 20, "e3deac9fc6f1fc1179028038c7c643b700cfe2e0a14850334fbe33edd5015742")
+                    || !Matches(StringTarget, 13, "0e3b70cc753a9f635c0050a462b2770b08a012af977e45625008bd3a48c9d1af")
+                    || !Matches(BufferTarget, 33, "e39ab25d207d5cdaf9809f34bc473746326631b534977db650ca677170757acb")
+                    || !Matches(customized, 1707, "759faa2aa86c7ce2cf68d9bf3223679d3cf26203e3fbb355d150558b017818bf")) { return null; }
+                var guards = new List<MethodBase> { AccessTools.PropertyGetter(typeof(ApiJsonNumericPreparation), "IsActive") };
+                AddDeclaredGuards(guards, typeof(StringBuilder));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderOutputPreparation));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderAcquirePatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderReleasePatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderStringPatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateBuilderBufferPatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateRepeatPreparation));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateFormatScopePatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonDateLiteralPreparation));
+                AddDeclaredGuards(guards, typeof(ReplayStorageService));
+                foreach (MethodBase method in guards) { if (method == null) { return null; } }
+                Guards = guards.ToArray();
+                DateMethods = date.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly);
+                var release = new DynamicMethod("ReleaseOwnedDateBuilder", typeof(void), new[] { typeof(StringBuilder) }, typeof(ApiJsonDateBuilderOutputPreparation), true);
+                ILGenerator il = release.GetILGenerator();
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Call, ReleaseTarget); il.Emit(OpCodes.Ret);
+                return (ReleaseBuilder)release.CreateDelegate(typeof(ReleaseBuilder));
+            } catch { return null; }
+        }
+
+        private static void AddDeclaredGuards(List<MethodBase> guards, Type type) {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+            foreach (MethodInfo method in type.GetMethods(flags)) {
+                guards.Add(method);
+                if (method.IsGenericMethodDefinition && method.GetGenericArguments().Length == 1) { guards.Add(method.MakeGenericMethod(typeof(string))); }
+            }
+            guards.AddRange(type.GetConstructors(flags));
+            if (type.TypeInitializer != null) { guards.Add(type.TypeInitializer); }
+            foreach (Type nested in type.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) {
+                AddDeclaredGuards(guards, nested);
+                if (nested.IsGenericTypeDefinition && nested.GetGenericArguments().Length == 1) { AddDeclaredGuards(guards, nested.MakeGenericType(typeof(string))); }
+            }
+        }
+
+        internal static IEnumerable<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions) {
+            var code = new List<CodeInstruction>(instructions);
+            Rewritten = false;
+            if (!Supported || code.Count != 21 || code[19].opcode != OpCodes.Newobj || !Equals(code[19].operand, Constructor)) { return code; }
+            foreach (CodeInstruction instruction in code) { if (instruction.blocks.Count != 0) { return code; } }
+            code.Insert(20, new CodeInstruction(OpCodes.Dup));
+            code.Insert(21, new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ApiJsonDateBuilderOutputPreparation), "Record")));
+            Rewritten = true;
+            return code;
+        }
+
+        private static bool Matches(MethodInfo method, int length, string expected) {
+            byte[] bytes = method?.GetMethodBody()?.GetILAsByteArray();
+            if (bytes == null || bytes.Length != length) { return false; }
+            using (SHA256 hash = SHA256.Create()) { return BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant() == expected; }
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class ApiJsonDateBuilderAcquirePatch {
+        internal static readonly MethodInfo PrefixMethod = AccessTools.Method(typeof(ApiJsonDateBuilderAcquirePatch), "Prefix");
+        internal static readonly MethodInfo TranspilerMethod = AccessTools.Method(typeof(ApiJsonDateBuilderAcquirePatch), "Transpiler");
+        private static bool Prepare() => ApiJsonDateBuilderOutputPreparation.Supported;
+        private static MethodBase TargetMethod() => ApiJsonDateBuilderOutputPreparation.AcquireTarget;
+        private static void Prefix() => ApiJsonDateBuilderOutputPreparation.BeforeAcquire();
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) => ApiJsonDateBuilderOutputPreparation.Rewrite(instructions);
+    }
+
+    [HarmonyPatch]
+    internal static class ApiJsonDateBuilderReleasePatch {
+        internal static readonly MethodInfo PrefixMethod = AccessTools.Method(typeof(ApiJsonDateBuilderReleasePatch), "Prefix");
+        private static bool Prepare() => ApiJsonDateBuilderOutputPreparation.Supported;
+        private static MethodBase TargetMethod() => ApiJsonDateBuilderOutputPreparation.ReleaseTarget;
+        private static void Prefix(StringBuilder __0) => ApiJsonDateBuilderOutputPreparation.Revoke(__0);
+    }
+
+    [HarmonyPatch]
+    internal static class ApiJsonDateBuilderBufferPatch {
+        internal static readonly MethodInfo PrefixMethod = AccessTools.Method(typeof(ApiJsonDateBuilderBufferPatch), "Prefix");
+        private static bool Prepare() => ApiJsonDateBuilderOutputPreparation.Supported;
+        private static MethodBase TargetMethod() => ApiJsonDateBuilderOutputPreparation.BufferTarget;
+        private static void Prefix(StringBuilder __instance) => ApiJsonDateBuilderOutputPreparation.Revoke(__instance);
+    }
+
+    [HarmonyPatch]
+    internal static class ApiJsonDateBuilderStringPatch {
+        internal static readonly MethodInfo PrefixMethod = AccessTools.Method(typeof(ApiJsonDateBuilderStringPatch), "Prefix");
+        private static bool Prepare() => ApiJsonDateBuilderOutputPreparation.Supported;
+        private static MethodBase TargetMethod() => ApiJsonDateBuilderOutputPreparation.StringTarget;
+        private static bool Prefix(StringBuilder __0, ref string __result) => !ApiJsonDateBuilderOutputPreparation.TryPrepare(__0, out __result);
+    }
+}

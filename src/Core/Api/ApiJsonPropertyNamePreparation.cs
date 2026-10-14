@@ -21,7 +21,7 @@ namespace ScoreSaber.Core.Api {
             get {
                 try {
                     if (!Rewritten || Target == null) { return false; }
-                    Patches info = Harmony.GetPatchInfo(Target);
+                    HarmonyLib.Patches info = Harmony.GetPatchInfo(Target);
                     if (info == null || info.Transpilers.Count == 0) { return false; }
                     foreach (Patch patch in info.Transpilers) {
                         if (patch.PatchMethod != ApiJsonPropertyNamePatch.TranspilerMethod) { return false; }

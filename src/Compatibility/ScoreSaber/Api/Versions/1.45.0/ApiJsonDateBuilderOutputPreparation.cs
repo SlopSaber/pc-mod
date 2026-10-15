@@ -201,11 +201,11 @@ namespace ScoreSaber.Core.Api {
                     && ApiJsonFormattingPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
                     && Supported && Rewritten && FormatterRewritten && IsUnchanged();
             } catch { }
-            if (!admitted) { return builder.Append(text); }
+            if (!admitted) { return AppendOriginalForFormatter(builder, text); }
             Task<string> task = null;
             try { QueueString(builder, text, out task); }
             catch { }
-            if (task == null) { return builder.Append(text); }
+            if (task == null) { return AppendOriginalForFormatter(builder, text); }
             while (!task.IsCompleted) {
                 try { task.Wait(); }
                 catch (ThreadInterruptedException) { }
@@ -523,7 +523,7 @@ namespace ScoreSaber.Core.Api {
             Frame frame = Current;
             if (state.Frame != null && ReferenceEquals(frame, state.Frame) && frame.Retired
                 && frame.Builder == null && Generation == unchecked(state.Version + 1)
-                && ApiJsonFormatterBorrowPreparation.IsUnchanged()) {
+                && IsUnchanged() && ApiJsonFormatterBorrowPreparation.IsUnchanged()) {
                 state.Version = Generation;
                 CompletedBorrow = state;
             }
@@ -540,11 +540,24 @@ namespace ScoreSaber.Core.Api {
                     || !largeText && ApiJsonFormatterBorrowPreparation.ReadLength(builder) < 524288) { return; }
                 if (!Supported || !Rewritten || !FormatterRewritten
                     || !ApiJsonCompositeFormatAppendPreparation.HasBorrowAdapter()
-                    || !IsUnchanged() || !ApiJsonFormatterBorrowPreparation.IsUnchanged()) { return; }
+                    || !IsUnchanged() || !ApiJsonFormatterBorrowPreparation.IsUnchanged()) {
+                    CompletedBorrow = default;
+                    return;
+                }
                 frame.Builder = builder;
                 frame.Retired = false;
                 CompletedBorrow = default;
-            } catch { }
+            } catch { CompletedBorrow = default; }
+        }
+
+        private static StringBuilder AppendOriginalForFormatter(StringBuilder builder, string text) {
+            try {
+                Frame frame = Current;
+                if (ApiJsonFormattingPreparation.IsSelected && frame != null
+                    && (ReferenceEquals(frame.Builder, builder) || ReferenceEquals(CompletedBorrow.Builder, builder))
+                    && !IsUnchanged()) { Revoke(builder); }
+            } catch { Retire(Current); }
+            return builder.Append(text);
         }
     }
 

@@ -67,7 +67,11 @@ namespace ScoreSaber.Features.Live.Protocol {
         }
 
         private static class DefaultKernel {
-            private static readonly MethodBase[] Methods = FindMethods();
+            private static readonly MethodBase[] Methods;
+
+            static DefaultKernel() {
+                Methods = FindMethods();
+            }
 
             internal static bool IsUnpatched() {
                 if (Methods == null) return false;

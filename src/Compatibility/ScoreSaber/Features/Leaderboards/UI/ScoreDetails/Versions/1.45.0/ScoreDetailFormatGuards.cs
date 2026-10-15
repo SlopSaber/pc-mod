@@ -24,6 +24,8 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
             foreach (MethodBase method in Guards) {
                 if (method == ApiJsonCompositeFormatAppendPreparation.Target) {
                     if (!ApiJsonCompositeFormatAppendPreparation.IsAccepted()) { return false; }
+                } else if (method == ApiJsonNumberGroupCopyPreparation.Target) {
+                    if (!ApiJsonNumberGroupCopyPreparation.IsAccepted()) { return false; }
                 } else if (Harmony.GetPatchInfo(method) != null) { return false; }
             }
             return true;
@@ -43,6 +45,8 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
                 AddDeclaredGuards(guards, parameters);
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPatch));
+                AddDeclaredGuards(guards, typeof(ApiJsonNumberGroupCopyPreparation));
+                AddDeclaredGuards(guards, typeof(ApiJsonNumberGroupCopyPatch));
                 AddDeclaredGuards(guards, typeof(double));
                 AddDeclaredGuards(guards, typeof(string).Assembly.GetType("System.Number"));
                 AddDeclaredGuards(guards, typeof(ScoreDetailFormatPreparation));

@@ -514,13 +514,16 @@ namespace ScoreSaber.Core.Api {
             bool completed = frame.Retired && ReferenceEquals(CompletedBorrow.Frame, frame)
                 && ReferenceEquals(CompletedBorrow.Builder, builder) && CompletedBorrow.Version == Generation;
             if (!owned && !completed) { return default; }
+            if (!ApiJsonFormatterBorrowPreparation.IsUnchanged()
+                || !Exact(BufferTarget, ApiJsonDateBuilderBufferPatch.PrefixMethod, null, null, null)) { return default; }
             return new BorrowState { Frame = frame, Builder = builder, Version = Generation };
         }
 
         internal static void CompleteFormatterBorrow(BorrowState state) {
             Frame frame = Current;
             if (state.Frame != null && ReferenceEquals(frame, state.Frame) && frame.Retired
-                && frame.Builder == null && Generation == unchecked(state.Version + 1)) {
+                && frame.Builder == null && Generation == unchecked(state.Version + 1)
+                && ApiJsonFormatterBorrowPreparation.IsUnchanged()) {
                 state.Version = Generation;
                 CompletedBorrow = state;
             }

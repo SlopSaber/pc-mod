@@ -42,6 +42,9 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
                     || !Matches(helper, 49, "6ae652dd15ea640b73ce5577ca8a053c3c0111a3e3fa085a872a0387d9802890")
                     || !Matches(append, 988, "570368ca8de8c65837b1e5470dcbd6dd53d8bcaccbcf46f074a7ac8e70b2cb34")) { return null; }
                 var guards = new List<MethodBase> { format, helper, append };
+                guards.Add(AccessTools.Method(typeof(string), "Format", new[] { typeof(string), typeof(object) }));
+                guards.Add(AccessTools.Method(typeof(string), "Format", new[] { typeof(string), typeof(object), typeof(object), typeof(object) }));
+                AddDeclaredGuards(guards, typeof(ScoreDetailPreparationScope));
                 AddDeclaredGuards(guards, parameters);
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPatch));
@@ -67,6 +70,24 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
             using (SHA256 hash = SHA256.Create()) {
                 return BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant() == expected;
             }
+        }
+
+        internal static void EnterSelectedFrame(ref object previous, ref bool entered) {
+            Enter(ref previous, ref entered);
+        }
+
+        internal static void ExitSelectedFrame(object previous, bool entered) {
+            Exit(previous, entered);
+        }
+    }
+
+    internal static partial class ScoreDetailPreparationScope {
+        static partial void EnterFrame(ref object previous, ref bool entered) {
+            ScoreDetailFormatPreparation.EnterSelectedFrame(ref previous, ref entered);
+        }
+
+        static partial void ExitFrame(object previous, bool entered) {
+            ScoreDetailFormatPreparation.ExitSelectedFrame(previous, entered);
         }
     }
 }

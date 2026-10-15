@@ -1,3 +1,4 @@
+using ScoreSaber.Core.Api;
 using ScoreSaber.Core.Platform;
 using ScoreSaber.Core.Presentation;
 using ScoreSaber.Features.Leaderboards.Domain;
@@ -25,28 +26,40 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
         internal bool HasReplay { get; set; }
 
         internal static ScoreDetailData Create(ScoreMap scoreMap) {
-            LeaderboardScore score = scoreMap.Score;
-            Tuple<string, string> crownDetails = PlayerPresentation.GetCrownDetails(score.Player.Id);
-            bool givesPP = scoreMap.Parent.Leaderboard.Status == LeaderboardStatus.Ranked;
-            return new ScoreDetailData {
-                Score = scoreMap,
-                PlayerId = score.Player.Id,
-                PlayerNameText = ScoreDetailNamePreparation.Concat(score.Player.Name, "'s score"),
-                DeviceHMDText = score.Device.HMD ?? VRDevices.GetLegacyHMDFriendlyName(score.LegacyHMDId),
-                DeviceControllerLeftText = string.IsNullOrEmpty(score.Device.ControllerLeft) ? "N/A" : score.Device.ControllerLeft,
-                DeviceControllerRightText = string.IsNullOrEmpty(score.Device.ControllerRight) ? "N/A" : score.Device.ControllerRight,
-                ScoreText = ScoreDetailFormatPreparation.Format("{0} (<color=#FFD42A>{1}%</color>)", ScoreDetailNumberFormatPreparation.Format("{0:n0}", score.ModifiedScore), scoreMap.Accuracy),
-                PPText = givesPP ? $"<color=#6772E5>{score.PP}pp</color>" : "N/A",
-                MaxComboText = score.MaxCombo != 0 ? score.MaxCombo.ToString() : "N/A",
-                FullComboText = score.MaxCombo != 0 ? score.FullCombo ? "<color=#9EDBB1>Yes</color>" : "<color=#FF0000>No</color>" : "N/A",
-                BadCutsText = score.MaxCombo != 0 ? score.BadCuts > 0 ? $"<color=#FF0000>{score.BadCuts}</color>" : score.BadCuts.ToString() : "N/A",
-                MissedNotesText = score.MaxCombo != 0 ? score.MissedNotes > 0 ? $"<color=#FF0000>{score.MissedNotes}</color>" : score.MissedNotes.ToString() : "N/A",
-                ModifiersText = scoreMap.ModifierText,
-                TimeSetText = ScoreAgeFormatter.FormatAgo(score.CreatedAt),
-                CrownImage = crownDetails.Item1,
-                CrownDescription = crownDetails.Item2,
-                HasReplay = score.HasReplay
-            };
+            bool previousFormatting = ApiJsonFormattingPreparation.EnterSelected();
+            object previous = null;
+            bool entered = false;
+            try {
+                ScoreDetailPreparationScope.Enter(ref previous, ref entered);
+                LeaderboardScore score = scoreMap.Score;
+                Tuple<string, string> crownDetails = PlayerPresentation.GetCrownDetails(score.Player.Id);
+                bool givesPP = scoreMap.Parent.Leaderboard.Status == LeaderboardStatus.Ranked;
+                return new ScoreDetailData {
+                    Score = scoreMap,
+                    PlayerId = score.Player.Id,
+                    PlayerNameText = ScoreDetailNamePreparation.Concat(score.Player.Name, "'s score"),
+                    DeviceHMDText = score.Device.HMD ?? VRDevices.GetLegacyHMDFriendlyName(score.LegacyHMDId),
+                    DeviceControllerLeftText = string.IsNullOrEmpty(score.Device.ControllerLeft) ? "N/A" : score.Device.ControllerLeft,
+                    DeviceControllerRightText = string.IsNullOrEmpty(score.Device.ControllerRight) ? "N/A" : score.Device.ControllerRight,
+                    ScoreText = ScoreDetailFormatPreparation.Format("{0} (<color=#FFD42A>{1}%</color>)", ScoreDetailNumberFormatPreparation.Format("{0:n0}", score.ModifiedScore), scoreMap.Accuracy),
+                    PPText = givesPP ? $"<color=#6772E5>{score.PP}pp</color>" : "N/A",
+                    MaxComboText = score.MaxCombo != 0 ? score.MaxCombo.ToString() : "N/A",
+                    FullComboText = score.MaxCombo != 0 ? score.FullCombo ? "<color=#9EDBB1>Yes</color>" : "<color=#FF0000>No</color>" : "N/A",
+                    BadCutsText = score.MaxCombo != 0 ? score.BadCuts > 0 ? $"<color=#FF0000>{score.BadCuts}</color>" : score.BadCuts.ToString() : "N/A",
+                    MissedNotesText = score.MaxCombo != 0 ? score.MissedNotes > 0 ? $"<color=#FF0000>{score.MissedNotes}</color>" : score.MissedNotes.ToString() : "N/A",
+                    ModifiersText = scoreMap.ModifierText,
+                    TimeSetText = ScoreAgeFormatter.FormatAgo(score.CreatedAt),
+                    CrownImage = crownDetails.Item1,
+                    CrownDescription = crownDetails.Item2,
+                    HasReplay = score.HasReplay
+                };
+            } finally {
+                try {
+                    ScoreDetailPreparationScope.Exit(previous, entered);
+                } finally {
+                    ApiJsonFormattingPreparation.ExitSelected(previousFormatting);
+                }
+            }
         }
     }
 }

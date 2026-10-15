@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
     internal static class ScoreAgeFormatter {
         internal static string FormatAgo(DateTime createdAt) {
-            return ToNaturalTime(new TimeSpan(DateTime.UtcNow.Ticks - createdAt.Ticks), 2) + " ago";
+            return ScoreDetailNamePreparation.Concat(ToNaturalTime(new TimeSpan(DateTime.UtcNow.Ticks - createdAt.Ticks), 2), " ago");
         }
 
         private static string ToNaturalTime(TimeSpan period, int precisionParts) {

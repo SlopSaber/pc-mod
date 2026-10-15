@@ -197,7 +197,11 @@ namespace ScoreSaber.Core.Api {
                 || !OnlyPrefix(WriteString, ApiJsonOutputStringPatch.PrefixMethod)
                 || !OnlyPrefix(Materialize, ApiJsonOutputMaterializePatch.PrefixMethod)
                 || !OnlyPrefix(ExposeBuilder, ApiJsonOutputBuilderEscapePatch.PrefixMethod)) { return false; }
-            foreach (MethodBase method in Guards) { if (Harmony.GetPatchInfo(method) != null) { return false; } }
+            foreach (MethodBase method in Guards) {
+                if (method == ApiJsonSelectedStringAllocationPreparation.Target) {
+                    if (!ApiJsonSelectedStringAllocationPreparation.IsAccepted()) { return false; }
+                } else if (Harmony.GetPatchInfo(method) != null) { return false; }
+            }
             return true;
         }
 
@@ -256,7 +260,8 @@ namespace ScoreSaber.Core.Api {
                 guards.Add(AccessTools.Method(typeof(JsonConvert).Assembly.GetType("Newtonsoft.Json.Utilities.JavaScriptUtils"),
                     "GetCharEscapeFlags", new[] { typeof(StringEscapeHandling), typeof(char) }));
                 foreach (Type owner in new[] { typeof(ApiJsonOwnedOutputPreparation), typeof(ApiJsonWriterCopyPreparation),
-                    typeof(ApiJsonOutputProducerPatch), typeof(ApiJsonOutputStringPatch), typeof(ApiJsonOutputMaterializePatch), typeof(ApiJsonOutputBuilderEscapePatch), typeof(ApiJsonOutputIndentPatch) }) {
+                    typeof(ApiJsonOutputProducerPatch), typeof(ApiJsonOutputStringPatch), typeof(ApiJsonOutputMaterializePatch), typeof(ApiJsonOutputBuilderEscapePatch), typeof(ApiJsonOutputIndentPatch),
+                    typeof(ApiJsonSelectedStringAllocationPreparation), typeof(ApiJsonSelectedStringAllocationPatch) }) {
                     guards.AddRange(owner.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
                     foreach (Type nested in owner.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) {
                         guards.AddRange(nested.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));

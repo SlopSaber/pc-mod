@@ -59,7 +59,7 @@ namespace ScoreSaber.Core.Api {
             Frame previous = Current;
             Current = null;
             try {
-                bool admitted = ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread && Supported;
+                bool admitted = ApiJsonFormattingPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread && Supported;
                 if (admitted || previous != null) { Current = new Frame(previous, !admitted); }
             } catch { Retire(previous); }
             return previous;
@@ -99,7 +99,7 @@ namespace ScoreSaber.Core.Api {
             try {
                 Frame frame = Current;
                 if (builder != null && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
-                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && ApiJsonFormattingPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
                     && Supported && Rewritten && FormatterRewritten && IsUnchanged()) { candidate = builder; }
             } catch { }
             Revoke(builder);
@@ -120,7 +120,7 @@ namespace ScoreSaber.Core.Api {
             Frame frame = Current;
             ulong version = Generation;
             try {
-                if (frame != null && !frame.Retired && ApiJsonNumericPreparation.IsActive
+                if (frame != null && !frame.Retired && ApiJsonFormattingPreparation.IsActive
                     && !Thread.CurrentThread.IsThreadPoolThread && Supported && Rewritten && FormatterRewritten && IsUnchanged()) {
                     candidate = KnownCached;
                 }
@@ -140,7 +140,7 @@ namespace ScoreSaber.Core.Api {
             try {
                 Frame frame = Current;
                 admitted = builder != null && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
-                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && ApiJsonFormattingPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
                     && Supported && Rewritten && builder.Length >= 524288 && builder.Length <= int.MaxValue / 2 && IsUnchanged();
             } catch { }
             if (!admitted) { return false; }
@@ -164,7 +164,7 @@ namespace ScoreSaber.Core.Api {
                 Frame frame = Current;
                 admitted = builder != null && values != null && count >= 524288 && count <= values.Length
                     && count <= int.MaxValue / 2 && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
-                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && ApiJsonFormattingPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
                     && Supported && Rewritten && IsUnchanged();
             } catch { }
             if (!admitted) { return false; }
@@ -194,7 +194,7 @@ namespace ScoreSaber.Core.Api {
                 Frame frame = Current;
                 admitted = builder != null && text != null && text.Length >= 524288 && text.Length <= int.MaxValue / 2
                     && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
-                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && ApiJsonFormattingPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
                     && Supported && Rewritten && FormatterRewritten && IsUnchanged();
             } catch { }
             if (!admitted) { return builder.Append(text); }
@@ -226,7 +226,7 @@ namespace ScoreSaber.Core.Api {
                 string candidate = ApiJsonDateRepeatPreparation.GetFormatRoot();
                 Frame frame = Current;
                 if (builder != null && candidate != null && frame != null && !frame.Retired && ReferenceEquals(frame.Builder, builder)
-                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && ApiJsonFormattingPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
                     && Supported && Rewritten && FormatterRewritten && IsUnchanged()
                     && ApiJsonDateRepeatPreparation.CanPrepareOwnedFormat() && ApiJsonDateSpanStringPreparation.CanReadImmutableSpan()) {
                     length = span.Length;
@@ -279,7 +279,7 @@ namespace ScoreSaber.Core.Api {
         internal static string ConcatForPattern(string first, string separator, string last) {
             bool admitted = false;
             try {
-                if (ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread && Supported
+                if (ApiJsonFormattingPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread && Supported
                     && ExpandedRewritten && IsUnchanged() && ApiJsonDateRepeatPreparation.CanPrepareOwnedFormat()
                     && first != null && separator != null && last != null && first.Length != 0 && separator.Length != 0 && last.Length != 0) {
                     long size = (long)first.Length + separator.Length + last.Length;
@@ -384,6 +384,7 @@ namespace ScoreSaber.Core.Api {
                     || !Matches(BufferTarget, 33, "e39ab25d207d5cdaf9809f34bc473746326631b534977db650ca677170757acb")
                     || !Matches(customized, 1707, "759faa2aa86c7ce2cf68d9bf3223679d3cf26203e3fbb355d150558b017818bf")) { return null; }
                 var guards = new List<MethodBase> { AccessTools.PropertyGetter(typeof(ApiJsonNumericPreparation), "IsActive"), ConcatTarget, EmptyTarget, FillTarget };
+                AddDeclaredGuards(guards, typeof(ApiJsonFormattingPreparation));
                 AddDeclaredGuards(guards, typeof(StringBuilder));
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPatch));

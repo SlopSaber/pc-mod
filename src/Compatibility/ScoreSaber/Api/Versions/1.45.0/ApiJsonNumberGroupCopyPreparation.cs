@@ -45,7 +45,7 @@ namespace ScoreSaber.Core.Api {
             try {
                 admitted = text != null && text.Length >= 524288 && text.Length <= int.MaxValue / 2
                     && rented != null && rented.Length >= text.Length && destination != IntPtr.Zero
-                    && ApiJsonNumericPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
+                    && ApiJsonFormattingPreparation.IsActive && !Thread.CurrentThread.IsThreadPoolThread
                     && Supported && IsUnchanged() && ApiJsonDateBuilderOutputPreparation.CanUseFormattingOutput();
             } catch { }
             if (!admitted) { return false; }
@@ -148,6 +148,7 @@ namespace ScoreSaber.Core.Api {
                     typeof(ApiJsonValueStringAppendPreparation), typeof(ApiJsonValueStringAppendPatch),
                     typeof(ApiJsonValueStringOutputPreparation), typeof(ApiJsonValueStringOutputPatch),
                     typeof(ApiJsonValueStringGrowthPreparation), typeof(ApiJsonValueStringGrowthPatch) }) { AddDeclaredGuards(guards, type); }
+                AddDeclaredGuards(guards, typeof(ApiJsonFormattingPreparation));
                 if (!AddPoolGuards(guards, core)) { return null; }
                 if (guards.Exists(method => method == null)) { return null; }
                 Guards = guards.ToArray();
@@ -186,7 +187,7 @@ namespace ScoreSaber.Core.Api {
             return (Action<string, IntPtr>)method.CreateDelegate(typeof(Action<string, IntPtr>));
         }
 
-        internal static bool CanUseOwnedArrayCopy() => Supported && Rewritten && ApiJsonNumericPreparation.IsActive
+        internal static bool CanUseOwnedArrayCopy() => Supported && Rewritten && ApiJsonFormattingPreparation.IsActive
             && !Thread.CurrentThread.IsThreadPoolThread && IsUnchanged() && ApiJsonDateBuilderOutputPreparation.CanUseFormattingOutput();
 
         private static bool AddPoolGuards(List<MethodBase> guards, Assembly core) {

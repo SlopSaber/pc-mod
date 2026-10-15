@@ -35,7 +35,7 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
                 DeviceHMDText = score.Device.HMD ?? VRDevices.GetLegacyHMDFriendlyName(score.LegacyHMDId),
                 DeviceControllerLeftText = string.IsNullOrEmpty(score.Device.ControllerLeft) ? "N/A" : score.Device.ControllerLeft,
                 DeviceControllerRightText = string.IsNullOrEmpty(score.Device.ControllerRight) ? "N/A" : score.Device.ControllerRight,
-                ScoreText = ScoreDetailFormatPreparation.Format("{0} (<color=#FFD42A>{1}%</color>)", string.Format("{0:n0}", score.ModifiedScore), scoreMap.Accuracy),
+                ScoreText = ScoreDetailFormatPreparation.Format("{0} (<color=#FFD42A>{1}%</color>)", ScoreDetailFormatPreparation.FormatNumber("{0:n0}", score.ModifiedScore), scoreMap.Accuracy),
                 PPText = givesPP ? $"<color=#6772E5>{score.PP}pp</color>" : "N/A",
                 MaxComboText = score.MaxCombo != 0 ? score.MaxCombo.ToString() : "N/A",
                 FullComboText = score.MaxCombo != 0 ? score.FullCombo ? "<color=#9EDBB1>Yes</color>" : "<color=#FF0000>No</color>" : "N/A",

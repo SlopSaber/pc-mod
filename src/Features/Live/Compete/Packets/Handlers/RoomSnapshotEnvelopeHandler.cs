@@ -74,7 +74,7 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
                     continue;
                 }
 
-                bool isLocal = OrdinalEqualityWitness.OrdinalEquals(player.PlayerId, session.LocalPlayerId, StringComparison.Ordinal);
+                bool isLocal = string.Equals(player.PlayerId, session.LocalPlayerId, StringComparison.Ordinal);
                 if (isLocal) {
                     localReady = state.ReadyState == LudusReadyState.LudusReadyStateReady;
                 }
@@ -119,8 +119,7 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
             }
 
             if (session.TournamentRoom != null) {
-                return rooms.FirstOrDefault(item => OrdinalEqualityWitness.OperatorEquals(item.MatchId, session.TournamentRoom.Id)
-                    || OrdinalEqualityWitness.OperatorEquals(item.RoomId, session.TournamentRoom.Id));
+                return rooms.FirstOrDefault(item => item.MatchId == session.TournamentRoom.Id || item.RoomId == session.TournamentRoom.Id);
             }
 
             string localPlayerId = session.LocalPlayerId;

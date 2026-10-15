@@ -166,6 +166,8 @@ namespace ScoreSaber.Core.Api {
             if (type.TypeInitializer != null) { guards.Add(type.TypeInitializer); }
             foreach (Type nested in type.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) { AddDeclaredGuards(guards, nested); }
         }
+
+        internal static bool CanReadOwnedRange() => Supported && IsUnchanged() && ApiJsonDateSpanStringPreparation.CanReadImmutableSpan();
     }
 
     [HarmonyPatch]

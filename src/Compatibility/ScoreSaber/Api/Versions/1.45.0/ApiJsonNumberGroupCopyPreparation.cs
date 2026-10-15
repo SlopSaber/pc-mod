@@ -31,6 +31,8 @@ namespace ScoreSaber.Core.Api {
             foreach (MethodBase method in Guards) {
                 if (method == ApiJsonValueStringAppendPreparation.Target) {
                     if (!ApiJsonValueStringAppendPreparation.IsAccepted()) { return false; }
+                } else if (method == ApiJsonValueStringOutputPreparation.Target) {
+                    if (!ApiJsonValueStringOutputPreparation.IsAccepted()) { return false; }
                 } else if (Harmony.GetPatchInfo(method) != null) { return false; }
             }
             return true;
@@ -141,7 +143,9 @@ namespace ScoreSaber.Core.Api {
                 };
                 foreach (Type type in new[] { builder, span, marshal, typeof(ApiJsonNumberGroupCopyPreparation),
                     typeof(ApiJsonNumberGroupCopyPatch), typeof(ReplayStorageService), typeof(Action<string, IntPtr>),
-                    typeof(ApiJsonValueStringAppendPreparation), typeof(ApiJsonValueStringAppendPatch) }) { AddDeclaredGuards(guards, type); }
+                    typeof(ApiJsonValueStringAppendPreparation), typeof(ApiJsonValueStringAppendPatch),
+                    typeof(ApiJsonValueStringOutputPreparation), typeof(ApiJsonValueStringOutputPatch) }) { AddDeclaredGuards(guards, type); }
+                if (!AddPoolGuards(guards, core)) { return null; }
                 if (guards.Exists(method => method == null)) { return null; }
                 Guards = guards.ToArray();
                 Copy = CreateCopy();
@@ -181,6 +185,24 @@ namespace ScoreSaber.Core.Api {
 
         internal static bool CanUseOwnedArrayCopy() => Supported && Rewritten && ApiJsonNumericPreparation.IsActive
             && !Thread.CurrentThread.IsThreadPoolThread && IsUnchanged() && ApiJsonDateBuilderOutputPreparation.CanUseFormattingOutput();
+
+        private static bool AddPoolGuards(List<MethodBase> guards, Assembly core) {
+            foreach (string name in new[] { "System.Buffers.ArrayPool`1", "System.Buffers.TlsOverPerCoreLockedStacksArrayPool`1" }) {
+                Type definition = core.GetType(name);
+                if (definition == null) { return false; }
+                Type pool = definition.MakeGenericType(typeof(char));
+                AddDeclaredGuards(guards, pool);
+                foreach (Type nested in pool.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) {
+                    if (nested.IsGenericTypeDefinition && nested.GetGenericArguments().Length == 1) {
+                        AddDeclaredGuards(guards, nested.MakeGenericType(typeof(char)));
+                    }
+                }
+            }
+            MethodInfo hash = AccessTools.Method(typeof(object), "GetHashCode", Type.EmptyTypes);
+            if (hash == null) { return false; }
+            guards.Add(hash);
+            return true;
+        }
     }
 
     [HarmonyPatch]

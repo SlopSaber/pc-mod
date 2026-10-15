@@ -15,5 +15,7 @@ namespace ScoreSaber.Core.Api {
         internal static void ExitSelected(bool previous) {
             _selected = previous;
         }
+
+        internal static bool IsSelected => _selected;
     }
 }

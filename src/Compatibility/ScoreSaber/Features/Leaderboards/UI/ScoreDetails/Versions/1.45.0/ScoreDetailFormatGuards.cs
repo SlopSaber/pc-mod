@@ -22,7 +22,9 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
 
         private static bool IsUnchanged() {
             foreach (MethodBase method in Guards) {
-                if (method == ApiJsonCompositeFormatAppendPreparation.Target) {
+                if (method == ScoreDetailFormatterScopePatch.Target) {
+                    if (!ScoreDetailFormatterScopePatch.IsAccepted()) { return false; }
+                } else if (method == ApiJsonCompositeFormatAppendPreparation.Target) {
                     if (!ApiJsonCompositeFormatAppendPreparation.IsAccepted()) { return false; }
                 } else if (method == ApiJsonNumberGroupCopyPreparation.Target) {
                     if (!ApiJsonNumberGroupCopyPreparation.IsAccepted()) { return false; }
@@ -45,6 +47,7 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
                 guards.Add(AccessTools.Method(typeof(string), "Format", new[] { typeof(string), typeof(object) }));
                 guards.Add(AccessTools.Method(typeof(string), "Format", new[] { typeof(string), typeof(object), typeof(object), typeof(object) }));
                 AddDeclaredGuards(guards, typeof(ScoreDetailPreparationScope));
+                AddDeclaredGuards(guards, typeof(ScoreDetailFormatterScopePatch));
                 AddDeclaredGuards(guards, parameters);
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPatch));
@@ -78,6 +81,15 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
 
         internal static void ExitSelectedFrame(object previous, bool entered) {
             Exit(previous, entered);
+        }
+
+        internal static MethodInfo GetFormatHelperTarget() {
+            try {
+                if (typeof(string).Module.ModuleVersionId != new Guid("41d29b35-2f6a-475a-b1bf-7c6628b82790")) { return null; }
+                Type parameters = typeof(string).Assembly.GetType("System.ParamsArray");
+                MethodInfo method = AccessTools.Method(typeof(string), "FormatHelper", new[] { typeof(IFormatProvider), typeof(string), parameters });
+                return Matches(method, 49, "6ae652dd15ea640b73ce5577ca8a053c3c0111a3e3fa085a872a0387d9802890") ? method : null;
+            } catch { return null; }
         }
     }
 

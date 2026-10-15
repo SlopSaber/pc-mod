@@ -53,6 +53,7 @@ namespace ScoreSaber.Core.Api {
         private static void InvalidateCache() {
             KnownCached = null;
             Generation = unchecked(Generation + 1);
+            CompletedBorrow = default;
         }
 
         internal static Frame Enter() {
@@ -66,6 +67,7 @@ namespace ScoreSaber.Core.Api {
         }
 
         internal static void Exit(Frame previous) {
+            CompletedBorrow = default;
             if (Current != null) { Current.Retired = true; Current.Builder = null; }
             Current = previous;
         }
@@ -136,6 +138,7 @@ namespace ScoreSaber.Core.Api {
 
         internal static bool TryPrepare(StringBuilder builder, out string result) {
             result = null;
+            RestoreCompletedBorrow(builder, false);
             bool admitted = false;
             try {
                 Frame frame = Current;
@@ -189,6 +192,7 @@ namespace ScoreSaber.Core.Api {
         }
 
         internal static StringBuilder AppendForFormatter(StringBuilder builder, string text) {
+            if (text != null && text.Length >= 524288) { RestoreCompletedBorrow(builder, true); }
             bool admitted = false;
             try {
                 Frame frame = Current;
@@ -385,6 +389,10 @@ namespace ScoreSaber.Core.Api {
                     || !Matches(customized, 1707, "759faa2aa86c7ce2cf68d9bf3223679d3cf26203e3fbb355d150558b017818bf")) { return null; }
                 var guards = new List<MethodBase> { AccessTools.PropertyGetter(typeof(ApiJsonNumericPreparation), "IsActive"), ConcatTarget, EmptyTarget, FillTarget };
                 AddDeclaredGuards(guards, typeof(ApiJsonFormattingPreparation));
+                AddDeclaredGuards(guards, typeof(ApiJsonFormatterBorrowPreparation));
+                AddDeclaredGuards(guards, typeof(ApiJsonFormatterBorrowPreparation.RemainingReader));
+                AddDeclaredGuards(guards, typeof(ApiJsonFormatterBorrowPreparation.NumericFormatter));
+                AddDeclaredGuards(guards, typeof(Func<StringBuilder, int>));
                 AddDeclaredGuards(guards, typeof(StringBuilder));
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPreparation));
                 AddDeclaredGuards(guards, typeof(ApiJsonCompositeFormatAppendPatch));
@@ -489,6 +497,52 @@ namespace ScoreSaber.Core.Api {
             using (SHA256 hash = SHA256.Create()) { return BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant() == expected; }
         }
         internal static bool CanUseFormattingOutput() => Supported && Rewritten && IsUnchanged();
+
+        internal struct BorrowState {
+            internal Frame Frame;
+            internal StringBuilder Builder;
+            internal ulong Version;
+        }
+
+        [ThreadStatic] private static BorrowState CompletedBorrow;
+
+        internal static BorrowState CaptureFormatterBorrow(StringBuilder builder, object value) {
+            Frame frame = Current;
+            if (!ApiJsonFormattingPreparation.IsSelected || builder == null || frame == null
+                || !(value is int || value is double)) { return default; }
+            bool owned = !frame.Retired && ReferenceEquals(frame.Builder, builder);
+            bool completed = frame.Retired && ReferenceEquals(CompletedBorrow.Frame, frame)
+                && ReferenceEquals(CompletedBorrow.Builder, builder) && CompletedBorrow.Version == Generation;
+            if (!owned && !completed) { return default; }
+            return new BorrowState { Frame = frame, Builder = builder, Version = Generation };
+        }
+
+        internal static void CompleteFormatterBorrow(BorrowState state) {
+            Frame frame = Current;
+            if (state.Frame != null && ReferenceEquals(frame, state.Frame) && frame.Retired
+                && frame.Builder == null && Generation == unchecked(state.Version + 1)) {
+                state.Version = Generation;
+                CompletedBorrow = state;
+            }
+        }
+
+        private static void RestoreCompletedBorrow(StringBuilder builder, bool largeText) {
+            try {
+                Frame frame = Current;
+                BorrowState state = CompletedBorrow;
+                if (!ApiJsonFormattingPreparation.IsSelected || Thread.CurrentThread.IsThreadPoolThread
+                    || builder == null || frame == null || !frame.Retired
+                    || !ReferenceEquals(state.Frame, frame) || !ReferenceEquals(state.Builder, builder)
+                    || state.Version != Generation || !ApiJsonFormatterBorrowPreparation.Supported
+                    || !largeText && ApiJsonFormatterBorrowPreparation.ReadLength(builder) < 524288) { return; }
+                if (!Supported || !Rewritten || !FormatterRewritten
+                    || !ApiJsonCompositeFormatAppendPreparation.HasBorrowAdapter()
+                    || !IsUnchanged() || !ApiJsonFormatterBorrowPreparation.IsUnchanged()) { return; }
+                frame.Builder = builder;
+                frame.Retired = false;
+                CompletedBorrow = default;
+            } catch { }
+        }
     }
 
     [HarmonyPatch]

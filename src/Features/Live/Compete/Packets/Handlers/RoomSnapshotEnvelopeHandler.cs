@@ -19,10 +19,10 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
         public LudusEnvelopeType Type => LudusEnvelopeType.RoomSnapshot;
 
         public void Handle(ILudusSessionPacketContext session, DecodedLudusEnvelope envelope) {
-            ApplyRoomSnapshot(_commandSession, envelope.Rooms, envelope.PreparedRooms, envelope.PreparedRoomMatches);
+            ApplyRoomSnapshot(_commandSession, envelope.Rooms, envelope.PreparedRooms, envelope.PreparedRoomMatches, envelope.LocalPlayerIdCandidate);
         }
 
-        private static void ApplyRoomSnapshot(ILudusServerCommandSession session, IEnumerable<LiveMatchRoomState> rooms, OwnedRoomSnapshotPreparation prepared, OwnedRoomSnapshotMatches preparedMatches) {
+        private static void ApplyRoomSnapshot(ILudusServerCommandSession session, IEnumerable<LiveMatchRoomState> rooms, OwnedRoomSnapshotPreparation prepared, OwnedRoomSnapshotMatches preparedMatches, string localPlayerIdCandidate) {
             if (rooms == null) {
                 session.NotifyViewersUpdated(null);
                 return;
@@ -45,7 +45,8 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
             bool localReady = false;
 
             IReadOnlyList<CompetePlayer> roster = session.TournamentRoom.Players;
-            OwnedRoomRosterLookup lookup = OwnedRoomRosterLookup.Prepare(roster, states, activePlayerIds);
+            OwnedRoomRosterLookup lookup = OwnedRoomRosterLookup.Prepare(roster, states, activePlayerIds, localPlayerIdCandidate);
+            bool useLocalMatches = lookup != null && lookup.HasLocalMatches;
             int position = 0;
             foreach (CompetePlayer player in roster) {
                 LiveRoomPlayerState state;
@@ -74,7 +75,9 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
                     continue;
                 }
 
-                bool isLocal = string.Equals(player.PlayerId, session.LocalPlayerId, StringComparison.Ordinal);
+                bool isLocal = useLocalMatches
+                    ? lookup.IsLocal(position - 1, player, player.PlayerId, session.LocalPlayerId)
+                    : string.Equals(player.PlayerId, session.LocalPlayerId, StringComparison.Ordinal);
                 if (isLocal) {
                     localReady = state.ReadyState == LudusReadyState.LudusReadyStateReady;
                 }

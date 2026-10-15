@@ -263,6 +263,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             _clientType = LudusClientType.LudusClientTypePlayer;
             _currentMatchId = string.Empty;
             _transport.PublishChatMatchId(_currentMatchId);
+            _transport.PublishLocalPlayerId(null);
             _currentTournamentId = string.Empty;
             _transport.DisposeSocket();
             UpdateViewerList(null);
@@ -483,7 +484,11 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
             return _outgoing.ReplayPacket(packet, _connectionId);
         }
 
-        private string GetLocalPlayerId() => _gameSessionService.LocalPlayerInfo?.playerId ?? _gameSessionService.GameSession?.PlayerId ?? string.Empty;
+        private string GetLocalPlayerId() {
+            string playerId = _gameSessionService.LocalPlayerInfo?.playerId ?? _gameSessionService.GameSession?.PlayerId ?? string.Empty;
+            _transport?.PublishLocalPlayerId(playerId);
+            return playerId;
+        }
 
         private string PublicPresenceMatchId() {
             string playerId = GetLocalPlayerId();

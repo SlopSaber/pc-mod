@@ -201,6 +201,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                             envelope.PreparedRooms = OwnedRoomSnapshotPreparation.Prepare(envelope.Rooms, envelope.RoomSnapshotModel);
                             envelope.RoomSnapshotModel = null;
                             envelope.PreparedRoomMatches = OwnedRoomSnapshotMatches.Prepare(envelope.Rooms, Volatile.Read(ref _chatMatchId));
+                            envelope.LocalPlayerIdCandidate = Volatile.Read(ref _localPlayerId);
                         }
                         if (envelope?.Type == LudusEnvelopeType.ChatSnapshot) {
                             envelope.PreparedChatKeys = OwnedChatKeyPreparation.Prepare(envelope.ChatSnapshot);
@@ -273,6 +274,13 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                     action();
                 }
             });
+        }
+
+        private string _localPlayerId;
+
+        internal void PublishLocalPlayerId(string playerId) {
+            string candidate = playerId != null && playerId.Length >= 1024 * 1024 ? playerId : null;
+            if (!ReferenceEquals(candidate, _localPlayerId)) Volatile.Write(ref _localPlayerId, candidate);
         }
     }
 }

@@ -30,8 +30,10 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
 
         static partial void Enter(ref object previous, ref bool entered);
         static partial void Exit(object previous, bool entered);
+    }
 
-        internal static string FormatNumber(string format, object value) {
+    internal static class ScoreDetailNumberFormatPreparation {
+        internal static string Format(string format, object value) {
             bool previous = ApiJsonFormattingPreparation.EnterSelected();
             try {
                 return string.Format(format, value);

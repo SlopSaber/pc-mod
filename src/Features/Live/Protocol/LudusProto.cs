@@ -268,8 +268,9 @@ namespace ScoreSaber.Features.Live.Protocol {
 
             if (frame.RoomSnapshot != null) {
                 envelope.Type = LudusEnvelopeType.RoomSnapshot;
-                envelope.Rooms = frame.RoomSnapshot.Rooms ?? new List<LiveMatchRoomState>();
-                if (frame.GetType() == typeof(ProtoLudusEnvelope) && frame.RoomSnapshot.GetType() == typeof(RoomSnapshot)) {
+                RoomSnapshot snapshot = frame.RoomSnapshot;
+                envelope.Rooms = snapshot.Rooms ?? new List<LiveMatchRoomState>();
+                if (frame.GetType() == typeof(ProtoLudusEnvelope) && snapshot.GetType() == typeof(RoomSnapshot)) {
                     envelope.RoomSnapshotModel = model;
                 }
                 return envelope;

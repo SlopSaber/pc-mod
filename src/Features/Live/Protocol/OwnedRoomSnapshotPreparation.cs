@@ -49,6 +49,9 @@ namespace ScoreSaber.Features.Live.Protocol {
         }
 
         internal static Dictionary<string, LiveRoomPlayerState> GroupStates(IEnumerable<LiveRoomPlayerState> states) {
+            if (OwnedCurrentRoomGrouping.TryGroup(states, out var prepared)) {
+                return prepared;
+            }
             return states.Where(state => !string.IsNullOrEmpty(state.PlayerId))
                 .GroupBy(state => state.PlayerId)
                 .ToDictionary(group => group.Key, group => group.First());

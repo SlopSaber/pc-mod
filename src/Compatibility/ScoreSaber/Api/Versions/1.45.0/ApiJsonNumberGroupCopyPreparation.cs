@@ -199,8 +199,10 @@ namespace ScoreSaber.Core.Api {
                 }
             }
             MethodInfo hash = AccessTools.Method(typeof(object), "GetHashCode", Type.EmptyTypes);
-            if (hash == null) { return false; }
+            MethodInfo nativeHash = AccessTools.Method(typeof(object), "InternalGetHashCode", new[] { typeof(object) });
+            if (hash == null || nativeHash == null) { return false; }
             guards.Add(hash);
+            guards.Add(nativeHash);
             return true;
         }
     }

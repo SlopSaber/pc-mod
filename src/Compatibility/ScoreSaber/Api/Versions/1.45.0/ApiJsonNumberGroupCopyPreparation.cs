@@ -33,6 +33,8 @@ namespace ScoreSaber.Core.Api {
                     if (!ApiJsonValueStringAppendPreparation.IsAccepted()) { return false; }
                 } else if (method == ApiJsonValueStringOutputPreparation.Target) {
                     if (!ApiJsonValueStringOutputPreparation.IsAccepted()) { return false; }
+                } else if (method == ApiJsonValueStringGrowthPreparation.Target) {
+                    if (!ApiJsonValueStringGrowthPreparation.IsAccepted()) { return false; }
                 } else if (Harmony.GetPatchInfo(method) != null) { return false; }
             }
             return true;
@@ -144,7 +146,8 @@ namespace ScoreSaber.Core.Api {
                 foreach (Type type in new[] { builder, span, marshal, typeof(ApiJsonNumberGroupCopyPreparation),
                     typeof(ApiJsonNumberGroupCopyPatch), typeof(ReplayStorageService), typeof(Action<string, IntPtr>),
                     typeof(ApiJsonValueStringAppendPreparation), typeof(ApiJsonValueStringAppendPatch),
-                    typeof(ApiJsonValueStringOutputPreparation), typeof(ApiJsonValueStringOutputPatch) }) { AddDeclaredGuards(guards, type); }
+                    typeof(ApiJsonValueStringOutputPreparation), typeof(ApiJsonValueStringOutputPatch),
+                    typeof(ApiJsonValueStringGrowthPreparation), typeof(ApiJsonValueStringGrowthPatch) }) { AddDeclaredGuards(guards, type); }
                 if (!AddPoolGuards(guards, core)) { return null; }
                 if (guards.Exists(method => method == null)) { return null; }
                 Guards = guards.ToArray();

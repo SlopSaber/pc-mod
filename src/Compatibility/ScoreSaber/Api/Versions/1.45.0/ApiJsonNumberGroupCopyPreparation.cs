@@ -36,9 +36,6 @@ namespace ScoreSaber.Core.Api {
             return true;
         }
 
-        internal static bool CanUseOwnedArrayCopy() => Supported && Rewritten && ApiJsonNumericPreparation.IsActive
-            && !Thread.CurrentThread.IsThreadPoolThread && IsUnchanged() && ApiJsonDateBuilderOutputPreparation.CanUseFormattingOutput();
-
         internal static bool TryCopyGroup(string text, IntPtr destination, char[] rented) {
             bool admitted = false;
             try {
@@ -181,6 +178,9 @@ namespace ScoreSaber.Core.Api {
             il.Emit(OpCodes.Ldloc, index); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Bge, body); il.Emit(OpCodes.Ret);
             return (Action<string, IntPtr>)method.CreateDelegate(typeof(Action<string, IntPtr>));
         }
+
+        internal static bool CanUseOwnedArrayCopy() => Supported && Rewritten && ApiJsonNumericPreparation.IsActive
+            && !Thread.CurrentThread.IsThreadPoolThread && IsUnchanged() && ApiJsonDateBuilderOutputPreparation.CanUseFormattingOutput();
     }
 
     [HarmonyPatch]

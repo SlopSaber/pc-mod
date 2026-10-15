@@ -49,10 +49,7 @@ namespace ScoreSaber.Core.Api {
             finally {
                 try {
                     try {
-                        ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => {
-                            Copy(text, destination);
-                            return 0;
-                        }, out task);
+                        Queue(text, destination, out task);
                     } catch { }
                 } finally {
                     if (task != null) {
@@ -68,6 +65,13 @@ namespace ScoreSaber.Core.Api {
             if (task == null) { return false; }
             task.GetAwaiter().GetResult();
             return true;
+        }
+
+        private static void Queue(string text, IntPtr destination, out Task<int> task) {
+            ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => {
+                Copy(text, destination);
+                return 0;
+            }, out task);
         }
 
         internal static IEnumerable<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions, ILGenerator generator) {

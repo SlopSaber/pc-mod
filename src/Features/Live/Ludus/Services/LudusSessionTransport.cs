@@ -198,7 +198,8 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                         string parseError;
                         DecodedLudusEnvelope envelope = LudusProto.Decode(bytes, out parseError);
                         if (envelope?.Type == LudusEnvelopeType.RoomSnapshot) {
-                            envelope.PreparedRooms = OwnedRoomSnapshotPreparation.Prepare(envelope.Rooms);
+                            envelope.PreparedRooms = OwnedRoomSnapshotPreparation.Prepare(envelope.Rooms, envelope.RoomSnapshotModel);
+                            envelope.RoomSnapshotModel = null;
                         }
                         if (envelope?.Type == LudusEnvelopeType.ChatSnapshot) {
                             envelope.PreparedChatKeys = OwnedChatKeyPreparation.Prepare(envelope.ChatSnapshot);
@@ -210,7 +211,12 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                             if (parseError != null) {
                                 Plugin.Log.Warn($"Failed to parse ludus protobuf frame: {parseError}");
                             }
-                            MessageReceived?.Invoke(envelope);
+                            OwnedRoomSnapshotPreparation prepared = envelope?.PreparedRooms;
+                            try {
+                                MessageReceived?.Invoke(envelope);
+                            } finally {
+                                prepared?.ReleaseOwnership();
+                            }
                         });
                     }
                 }

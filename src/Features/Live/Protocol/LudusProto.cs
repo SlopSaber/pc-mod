@@ -1,4 +1,5 @@
 using ProtoBuf;
+using ProtoBuf.Meta;
 using ScoreSaber.Live.V1;
 using System;
 using System.Collections.Generic;
@@ -34,6 +35,7 @@ namespace ScoreSaber.Features.Live.Protocol {
         internal int ReconnectRetryAfterMs { get; set; }
         internal List<LiveMatchRoomState> Rooms { get; set; } = new List<LiveMatchRoomState>();
         internal OwnedRoomSnapshotPreparation PreparedRooms { get; set; }
+        internal RuntimeTypeModel RoomSnapshotModel { get; set; }
         internal ServerCommand ServerCommand { get; set; }
         internal LiveChatMessage ChatMessage { get; set; }
         internal OwnedChatMessageMatch PreparedChatMessageMatch { get; set; }
@@ -211,9 +213,15 @@ namespace ScoreSaber.Features.Live.Protocol {
         internal static DecodedLudusEnvelope Decode(byte[] bytes, out string parseError) {
             parseError = null;
             ProtoLudusEnvelope frame;
+            RuntimeTypeModel model = null;
             try {
                 using (var stream = new MemoryStream(bytes)) {
-                    frame = Serializer.Deserialize<ProtoLudusEnvelope>(stream);
+                    if (OwnedRoomSnapshotPolicy.CanCaptureModel()) {
+                        model = RuntimeTypeModel.Default;
+                        frame = model.Deserialize<ProtoLudusEnvelope>(stream, null, null);
+                    } else {
+                        frame = Serializer.Deserialize<ProtoLudusEnvelope>(stream);
+                    }
                 }
             } catch (Exception ex) {
                 parseError = ex.Message;
@@ -261,6 +269,9 @@ namespace ScoreSaber.Features.Live.Protocol {
             if (frame.RoomSnapshot != null) {
                 envelope.Type = LudusEnvelopeType.RoomSnapshot;
                 envelope.Rooms = frame.RoomSnapshot.Rooms ?? new List<LiveMatchRoomState>();
+                if (frame.GetType() == typeof(ProtoLudusEnvelope) && frame.RoomSnapshot.GetType() == typeof(RoomSnapshot)) {
+                    envelope.RoomSnapshotModel = model;
+                }
                 return envelope;
             }
 

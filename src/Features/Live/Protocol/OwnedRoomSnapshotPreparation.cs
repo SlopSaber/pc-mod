@@ -1,3 +1,4 @@
+using ProtoBuf.Meta;
 using ScoreSaber.Live.V1;
 using System;
 using System.Collections.Generic;
@@ -7,28 +8,35 @@ using System.Runtime.ExceptionServices;
 namespace ScoreSaber.Features.Live.Protocol {
     internal sealed class OwnedRoomSnapshotPreparation {
         private readonly Entry[] _entries;
+        private bool _privateOwnership;
 
-        private OwnedRoomSnapshotPreparation(Entry[] entries) {
+        private OwnedRoomSnapshotPreparation(Entry[] entries, bool privateOwnership) {
             _entries = entries;
+            _privateOwnership = privateOwnership;
         }
 
-        internal static OwnedRoomSnapshotPreparation Prepare(List<LiveMatchRoomState> rooms) {
+        internal static OwnedRoomSnapshotPreparation Prepare(List<LiveMatchRoomState> rooms, RuntimeTypeModel model = null) {
             if (rooms == null || rooms.GetType() != typeof(List<LiveMatchRoomState>)) {
                 return null;
             }
 
             var entries = new Entry[rooms.Count];
+            long validationRows = 0;
             for (int i = 0; i < rooms.Count; i++) {
                 entries[i] = Entry.Capture(rooms[i]);
+                validationRows += entries[i]?.ValidationRows ?? 0;
             }
-            return new OwnedRoomSnapshotPreparation(entries);
+            return new OwnedRoomSnapshotPreparation(entries,
+                validationRows >= 4096 && OwnedRoomSnapshotPolicy.IsPrivateModel(model));
         }
+
+        internal void ReleaseOwnership() => _privateOwnership = false;
 
         internal bool TryGet(LiveMatchRoomState room, out Dictionary<string, LiveRoomPlayerState> states, out HashSet<string> activeIds) {
             states = null;
             activeIds = null;
             foreach (Entry entry in _entries) {
-                if (entry == null || !entry.Matches(room)) {
+                if (entry == null || !entry.Matches(room, _privateOwnership)) {
                     continue;
                 }
 
@@ -88,6 +96,7 @@ namespace ScoreSaber.Features.Live.Protocol {
             internal Dictionary<string, LiveRoomPlayerState> States { get; }
             internal HashSet<string> ActiveIds { get; }
             internal ExceptionDispatchInfo Error { get; }
+            internal long ValidationRows => (long)(_stateItems?.Length ?? 0) + (_playerIds?.Length ?? 0);
 
             internal static Entry Capture(LiveMatchRoomState room) {
                 if (room == null || room.GetType() != typeof(LiveMatchRoomState)
@@ -101,7 +110,8 @@ namespace ScoreSaber.Features.Live.Protocol {
                 return new Entry(room);
             }
 
-            internal bool Matches(LiveMatchRoomState room) {
+            internal bool Matches(LiveMatchRoomState room, bool privateOwnership) {
+                if (privateOwnership && ReferenceEquals(room, _room)) return true;
                 if (!ReferenceEquals(room, _room) || !ReferenceEquals(room.PlayerStates, _stateList)
                     || !ReferenceEquals(room.PlayerIds, _idList)) {
                     return false;

@@ -91,6 +91,7 @@ namespace ScoreSaber.Features.Live.Protocol {
                 } catch (Exception ex) {
                     Error = ExceptionDispatchInfo.Capture(ex);
                 }
+                _materialId = OwnedValidationEquality.FindMaterialId(_stateIds, _playerIds);
             }
 
             internal Dictionary<string, LiveRoomPlayerState> States { get; }
@@ -117,6 +118,8 @@ namespace ScoreSaber.Features.Live.Protocol {
                     return false;
                 }
 
+                if (_materialId != null) return MatchesMaterial();
+
                 if (_stateList != null) {
                     if (_stateList.Count != _stateItems.Length) {
                         return false;
@@ -136,6 +139,26 @@ namespace ScoreSaber.Features.Live.Protocol {
                         if (_idList[i] != _playerIds[i]) {
                             return false;
                         }
+                    }
+                }
+                return true;
+            }
+
+            private readonly string _materialId;
+
+            private bool MatchesMaterial() {
+                var equality = new OwnedValidationEquality(_materialId);
+                if (_stateList != null) {
+                    if (_stateList.Count != _stateItems.Length) return false;
+                    for (int i = 0; i < _stateItems.Length; i++) {
+                        if (!ReferenceEquals(_stateList[i], _stateItems[i])
+                            || equality.NotEqual(_stateList[i]?.PlayerId, _stateIds[i])) return false;
+                    }
+                }
+                if (_idList != null) {
+                    if (_idList.Count != _playerIds.Length) return false;
+                    for (int i = 0; i < _playerIds.Length; i++) {
+                        if (equality.NotEqual(_idList[i], _playerIds[i])) return false;
                     }
                 }
                 return true;

@@ -97,6 +97,7 @@ namespace ScoreSaber.Core.Api {
         }
 
         internal static ReleaseState BeforeRelease(StringBuilder builder) {
+            if (ApiJsonFormattingPreparation.IsSelected) { RestoreCompletedBorrow(builder, true); }
             StringBuilder candidate = null;
             try {
                 Frame frame = Current;

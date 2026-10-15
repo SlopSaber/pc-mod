@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Reflection.Emit;
+using System.Collections.Generic;
 using HarmonyLib;
 using ScoreSaber.Core.Api;
 
@@ -8,6 +10,8 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
         internal static readonly MethodInfo Target = ScoreDetailFormatPreparation.GetFormatHelperTarget();
         private static readonly MethodInfo PrefixMethod = AccessTools.Method(typeof(ScoreDetailFormatterScopePatch), "Prefix");
         private static readonly MethodInfo FinalizerMethod = AccessTools.Method(typeof(ScoreDetailFormatterScopePatch), "Finalizer");
+        private static readonly MethodInfo TranspilerMethod = AccessTools.Method(typeof(ScoreDetailFormatterScopePatch), "Transpiler");
+        private static bool Rewritten;
 
         internal struct State {
             internal object Previous;
@@ -33,7 +37,19 @@ namespace ScoreSaber.Features.Leaderboards.UI.ScoreDetails {
             HarmonyLib.Patches info = Harmony.GetPatchInfo(Target);
             return info == null || info.Prefixes.Count == 1 && info.Prefixes[0].PatchMethod == PrefixMethod
                 && info.Finalizers.Count == 1 && info.Finalizers[0].PatchMethod == FinalizerMethod
-                && info.Postfixes.Count == 0 && info.Transpilers.Count == 0;
+                && info.Postfixes.Count == 0 && Rewritten && info.Transpilers.Count == 1
+                && info.Transpilers[0].PatchMethod == TranspilerMethod;
+        }
+
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
+            var code = new List<CodeInstruction>(instructions);
+            Rewritten = false;
+            MethodInfo wrapper = AccessTools.Method(typeof(ApiJsonDateBuilderOutputPreparation), "AcquireForFormatter");
+            if (code.Count != 19 || wrapper == null || code[12].opcode != OpCodes.Call
+                || !Equals(code[12].operand, ApiJsonDateBuilderOutputPreparation.AcquireTarget)) { return code; }
+            code[12].operand = wrapper;
+            Rewritten = true;
+            return code;
         }
     }
 }

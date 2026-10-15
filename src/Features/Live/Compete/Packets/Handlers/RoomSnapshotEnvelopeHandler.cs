@@ -19,17 +19,17 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
         public LudusEnvelopeType Type => LudusEnvelopeType.RoomSnapshot;
 
         public void Handle(ILudusSessionPacketContext session, DecodedLudusEnvelope envelope) {
-            ApplyRoomSnapshot(_commandSession, envelope.Rooms, envelope.PreparedRooms);
+            ApplyRoomSnapshot(_commandSession, envelope.Rooms, envelope.PreparedRooms, envelope.PreparedRoomMatches);
         }
 
-        private static void ApplyRoomSnapshot(ILudusServerCommandSession session, IEnumerable<LiveMatchRoomState> rooms, OwnedRoomSnapshotPreparation prepared) {
+        private static void ApplyRoomSnapshot(ILudusServerCommandSession session, IEnumerable<LiveMatchRoomState> rooms, OwnedRoomSnapshotPreparation prepared, OwnedRoomSnapshotMatches preparedMatches) {
             if (rooms == null) {
                 session.NotifyViewersUpdated(null);
                 return;
             }
 
             List<LiveMatchRoomState> roomList = rooms as List<LiveMatchRoomState> ?? rooms.ToList();
-            LiveMatchRoomState room = FindSessionRoom(session, roomList);
+            LiveMatchRoomState room = FindSessionRoom(session, roomList, preparedMatches);
             session.NotifyViewersUpdated(room?.Viewers);
             if (room == null || session.TournamentRoom == null) {
                 return;
@@ -113,12 +113,13 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
             return OwnedRoomSnapshotPreparation.BuildActiveIds(room);
         }
 
-        private static LiveMatchRoomState FindSessionRoom(ILudusServerCommandSession session, IList<LiveMatchRoomState> rooms) {
+        private static LiveMatchRoomState FindSessionRoom(ILudusServerCommandSession session, IList<LiveMatchRoomState> rooms, OwnedRoomSnapshotMatches preparedMatches) {
             if (rooms == null || rooms.Count == 0) {
                 return null;
             }
 
             if (session.TournamentRoom != null) {
+                if (preparedMatches != null) return FindPreparedSessionRoom(session, rooms, preparedMatches);
                 return rooms.FirstOrDefault(item => item.MatchId == session.TournamentRoom.Id || item.RoomId == session.TournamentRoom.Id);
             }
 
@@ -156,6 +157,15 @@ namespace ScoreSaber.Features.Live.Compete.Packets.Handlers {
             }
 
             return "Waiting";
+        }
+
+        private static LiveMatchRoomState FindPreparedSessionRoom(ILudusServerCommandSession session, IList<LiveMatchRoomState> rooms, OwnedRoomSnapshotMatches prepared) {
+            int index = 0;
+            return rooms.FirstOrDefault(item => {
+                int position = index++;
+                return prepared.Matches(position, item, item.MatchId, session.TournamentRoom.Id, false)
+                    || prepared.Matches(position, item, item.RoomId, session.TournamentRoom.Id, true);
+            });
         }
     }
 }

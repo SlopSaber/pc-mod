@@ -4,15 +4,11 @@ using System;
 namespace ScoreSaber.Features.Live.Protocol {
     internal sealed class OwnedChatMessageMatch {
         private readonly LiveChatMessage _message;
-        private readonly string _matchId;
-        private readonly string _currentMatchId;
-        private readonly bool _matches;
+        private readonly OwnedStringEquality _comparison;
 
-        private OwnedChatMessageMatch(LiveChatMessage message, string matchId, string currentMatchId, bool matches) {
+        private OwnedChatMessageMatch(LiveChatMessage message, OwnedStringEquality comparison) {
             _message = message;
-            _matchId = matchId;
-            _currentMatchId = currentMatchId;
-            _matches = matches;
+            _comparison = comparison;
         }
 
         internal static OwnedChatMessageMatch Prepare(LiveChatMessage message, string currentMatchId) {
@@ -21,12 +17,8 @@ namespace ScoreSaber.Features.Live.Protocol {
                     return null;
                 }
                 string matchId = message.MatchId;
-                if (matchId == null || ReferenceEquals(matchId, currentMatchId) || matchId.Length != currentMatchId.Length
-                    || matchId.Length < 1024 * 1024) {
-                    return null;
-                }
-                return new OwnedChatMessageMatch(message, matchId, currentMatchId,
-                    string.Equals(matchId, currentMatchId, StringComparison.Ordinal));
+                OwnedStringEquality comparison = OwnedStringEquality.Prepare(matchId, currentMatchId, true);
+                return comparison.IsPrepared ? new OwnedChatMessageMatch(message, comparison) : null;
             } catch {
                 return null;
             }
@@ -34,12 +26,10 @@ namespace ScoreSaber.Features.Live.Protocol {
 
         internal bool TryGet(LiveChatMessage message, string matchId, string currentMatchId, out bool matches) {
             matches = false;
-            if (!ReferenceEquals(message, _message) || !ReferenceEquals(matchId, _matchId)
-                || !ReferenceEquals(currentMatchId, _currentMatchId)) {
+            if (!ReferenceEquals(message, _message)) {
                 return false;
             }
-            matches = _matches;
-            return true;
+            return _comparison.TryGet(matchId, currentMatchId, out matches);
         }
     }
 }

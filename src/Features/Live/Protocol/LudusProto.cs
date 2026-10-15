@@ -35,6 +35,7 @@ namespace ScoreSaber.Features.Live.Protocol {
         internal int ReconnectRetryAfterMs { get; set; }
         internal List<LiveMatchRoomState> Rooms { get; set; } = new List<LiveMatchRoomState>();
         internal OwnedRoomSnapshotPreparation PreparedRooms { get; set; }
+        internal OwnedRoomSnapshotMatches PreparedRoomMatches { get; set; }
         internal RuntimeTypeModel RoomSnapshotModel { get; set; }
         internal ServerCommand ServerCommand { get; set; }
         internal LiveChatMessage ChatMessage { get; set; }

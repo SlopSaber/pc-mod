@@ -200,6 +200,7 @@ namespace ScoreSaber.Features.Live.Ludus.Services {
                         if (envelope?.Type == LudusEnvelopeType.RoomSnapshot) {
                             envelope.PreparedRooms = OwnedRoomSnapshotPreparation.Prepare(envelope.Rooms, envelope.RoomSnapshotModel);
                             envelope.RoomSnapshotModel = null;
+                            envelope.PreparedRoomMatches = OwnedRoomSnapshotMatches.Prepare(envelope.Rooms, Volatile.Read(ref _chatMatchId));
                         }
                         if (envelope?.Type == LudusEnvelopeType.ChatSnapshot) {
                             envelope.PreparedChatKeys = OwnedChatKeyPreparation.Prepare(envelope.ChatSnapshot);

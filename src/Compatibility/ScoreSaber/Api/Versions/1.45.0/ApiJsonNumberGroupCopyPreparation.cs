@@ -29,10 +29,15 @@ namespace ScoreSaber.Core.Api {
         private static bool IsUnchanged() {
             if (!Rewritten || !IsAccepted()) { return false; }
             foreach (MethodBase method in Guards) {
-                if (Harmony.GetPatchInfo(method) != null) { return false; }
+                if (method == ApiJsonValueStringAppendPreparation.Target) {
+                    if (!ApiJsonValueStringAppendPreparation.IsAccepted()) { return false; }
+                } else if (Harmony.GetPatchInfo(method) != null) { return false; }
             }
             return true;
         }
+
+        internal static bool CanUseOwnedArrayCopy() => Supported && Rewritten && ApiJsonNumericPreparation.IsActive
+            && !Thread.CurrentThread.IsThreadPoolThread && IsUnchanged() && ApiJsonDateBuilderOutputPreparation.CanUseFormattingOutput();
 
         internal static bool TryCopyGroup(string text, IntPtr destination, char[] rented) {
             bool admitted = false;
@@ -138,7 +143,8 @@ namespace ScoreSaber.Core.Api {
                     AccessTools.PropertyGetter(typeof(ApiJsonNumericPreparation), "IsActive")
                 };
                 foreach (Type type in new[] { builder, span, marshal, typeof(ApiJsonNumberGroupCopyPreparation),
-                    typeof(ApiJsonNumberGroupCopyPatch), typeof(ReplayStorageService), typeof(Action<string, IntPtr>) }) { AddDeclaredGuards(guards, type); }
+                    typeof(ApiJsonNumberGroupCopyPatch), typeof(ReplayStorageService), typeof(Action<string, IntPtr>),
+                    typeof(ApiJsonValueStringAppendPreparation), typeof(ApiJsonValueStringAppendPatch) }) { AddDeclaredGuards(guards, type); }
                 if (guards.Exists(method => method == null)) { return null; }
                 Guards = guards.ToArray();
                 Copy = CreateCopy();

@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace ScoreSaber.Features.Live.Protocol {
     internal static class OwnedCurrentActiveIds {
         internal static bool TryAdd(LiveMatchRoomState room, List<string> source, HashSet<string> destination) {
-            if (!CanPrepare(room, source)) {
+            if (!CanPrepare(room, source) || !HasMaterialKeys(source)) {
                 return false;
             }
             var captured = new List<string>();
@@ -27,14 +27,26 @@ namespace ScoreSaber.Features.Live.Protocol {
             if (!CanPrepare(room, source)) {
                 return false;
             }
+            bool material = source.Count >= 4096;
+            long bytes = 0;
             try {
                 for (int i = 0; i < source.Count; i++) {
                     LiveRoomPlayerState state = source[i];
                     if (state == null || state.GetType() != typeof(LiveRoomPlayerState)) {
                         return false;
                     }
+                    if (!material) {
+                        string id = state.PlayerId;
+                        if (id != null) {
+                            bytes += (long)id.Length * 2;
+                            material = bytes >= 1048576;
+                        }
+                    }
                 }
             } catch {
+                return false;
+            }
+            if (!material) {
                 return false;
             }
             var captured = new List<string>();
@@ -48,12 +60,12 @@ namespace ScoreSaber.Features.Live.Protocol {
         }
 
         private static bool CanPrepare<T>(LiveMatchRoomState room, List<T> source) {
-            return source != null && source.GetType() == typeof(List<T>) && source.Count >= 4096
+            return source != null && source.GetType() == typeof(List<T>)
                 && room.GetType() == typeof(LiveMatchRoomState) && UnityGame.OnMainThread;
         }
 
         private static void AddCaptured(string[] snapshot, HashSet<string> destination) {
-            if (snapshot.Length < 4096 || !ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => {
+            if (!HasMaterialKeys(snapshot) || !ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => {
                 Add(snapshot, destination);
                 return true;
             }, out Task<bool> task)) {
@@ -72,6 +84,27 @@ namespace ScoreSaber.Features.Live.Protocol {
             foreach (string id in snapshot) {
                 destination.Add(id);
             }
+        }
+
+        private static bool HasMaterialKeys(IReadOnlyList<string> source) {
+            try {
+                if (source.Count >= 4096) {
+                    return true;
+                }
+                long bytes = 0;
+                for (int i = 0; i < source.Count; i++) {
+                    string id = source[i];
+                    if (id != null) {
+                        bytes += (long)id.Length * 2;
+                        if (bytes >= 1048576) {
+                            return true;
+                        }
+                    }
+                }
+            } catch {
+                return false;
+            }
+            return false;
         }
     }
 }

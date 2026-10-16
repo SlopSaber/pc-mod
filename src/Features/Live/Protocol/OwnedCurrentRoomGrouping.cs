@@ -14,17 +14,29 @@ namespace ScoreSaber.Features.Live.Protocol {
             result = null;
             if (!(states is List<LiveRoomPlayerState> list)
                 || list.GetType() != typeof(List<LiveRoomPlayerState>)
-                || list.Count < 4096 || !UnityGame.OnMainThread) {
+                || !UnityGame.OnMainThread) {
                 return false;
             }
+            bool material = list.Count >= 4096;
+            long bytes = 0;
             try {
                 for (int i = 0; i < list.Count; i++) {
                     LiveRoomPlayerState state = list[i];
                     if (state == null || state.GetType() != typeof(LiveRoomPlayerState)) {
                         return false;
                     }
+                    if (!material) {
+                        string id = state.PlayerId;
+                        if (id != null) {
+                            bytes += (long)id.Length * 2;
+                            material = bytes >= 1048576;
+                        }
+                    }
                 }
             } catch {
+                return false;
+            }
+            if (!material) {
                 return false;
             }
 
@@ -40,7 +52,7 @@ namespace ScoreSaber.Features.Live.Protocol {
 
         private static Dictionary<string, LiveRoomPlayerState> Prepare(
             KeyValuePair<string, LiveRoomPlayerState>[] snapshot) {
-            if (snapshot.Length < 4096 || !ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
+            if (!HasMaterialKeys(snapshot) || !ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
                 () => Build(snapshot), out Task<Dictionary<string, LiveRoomPlayerState>> task)) {
                 return Build(snapshot);
             }
@@ -56,6 +68,22 @@ namespace ScoreSaber.Features.Live.Protocol {
             KeyValuePair<string, LiveRoomPlayerState>[] snapshot) {
             return snapshot.GroupBy(item => item.Key)
                 .ToDictionary(group => group.Key, group => group.First().Value);
+        }
+
+        private static bool HasMaterialKeys(KeyValuePair<string, LiveRoomPlayerState>[] snapshot) {
+            if (snapshot.Length >= 4096) {
+                return true;
+            }
+            long bytes = 0;
+            foreach (var item in snapshot) {
+                if (item.Key != null) {
+                    bytes += (long)item.Key.Length * 2;
+                    if (bytes >= 1048576) {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
     }
 }

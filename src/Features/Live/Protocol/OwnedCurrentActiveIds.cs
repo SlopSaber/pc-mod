@@ -27,10 +27,11 @@ namespace ScoreSaber.Features.Live.Protocol {
             if (!CanPrepare(room, source)) {
                 return false;
             }
-            bool material = source.Count >= 4096;
+            int count = source.Count;
+            bool material = count >= 4096;
             long bytes = 0;
             try {
-                for (int i = 0; i < source.Count; i++) {
+                for (int i = 0; i < count; i++) {
                     LiveRoomPlayerState state = source[i];
                     if (state == null || state.GetType() != typeof(LiveRoomPlayerState)) {
                         return false;
@@ -88,11 +89,12 @@ namespace ScoreSaber.Features.Live.Protocol {
 
         private static bool HasMaterialKeys(IReadOnlyList<string> source) {
             try {
-                if (source.Count >= 4096) {
+                int count = source.Count;
+                if (count >= 4096) {
                     return true;
                 }
                 long bytes = 0;
-                for (int i = 0; i < source.Count; i++) {
+                for (int i = 0; i < count; i++) {
                     string id = source[i];
                     if (id != null) {
                         bytes += (long)id.Length * 2;

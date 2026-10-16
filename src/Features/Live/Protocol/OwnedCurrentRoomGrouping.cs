@@ -17,10 +17,11 @@ namespace ScoreSaber.Features.Live.Protocol {
                 || !UnityGame.OnMainThread) {
                 return false;
             }
-            bool material = list.Count >= 4096;
+            int count = list.Count;
+            bool material = count >= 4096;
             long bytes = 0;
             try {
-                for (int i = 0; i < list.Count; i++) {
+                for (int i = 0; i < count; i++) {
                     LiveRoomPlayerState state = list[i];
                     if (state == null || state.GetType() != typeof(LiveRoomPlayerState)) {
                         return false;

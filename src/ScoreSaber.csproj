@@ -12,7 +12,7 @@
     <ScoreSaberUserProjectFile>$(MSBuildProjectFullPath).user</ScoreSaberUserProjectFile>
     <ScoreSaberUserBeatSaberDir Condition="'$(ScoreSaberUserBeatSaberDir)' == '' AND Exists('$(ScoreSaberUserProjectFile)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(ScoreSaberUserProjectFile)')), '(?s)&lt;BeatSaberDir&gt;\s*(.*?)\s*&lt;/BeatSaberDir&gt;').Groups.get_Item(1).Value)</ScoreSaberUserBeatSaberDir>
     <BeatSaberDir Condition="'$(ScoreSaberUserBeatSaberDir)' != ''">$(ScoreSaberUserBeatSaberDir)</BeatSaberDir>
-    <ScoreSaberDefaultTargetVersion Condition="'$(ScoreSaberDefaultTargetVersion)' == ''">1.45.0</ScoreSaberDefaultTargetVersion>
+    <ScoreSaberDefaultTargetVersion Condition="'$(ScoreSaberDefaultTargetVersion)' == ''">1.45.3</ScoreSaberDefaultTargetVersion>
     <ScoreSaberTargetVersionExplicit Condition="'$(ScoreSaberTargetVersion)' != ''">true</ScoreSaberTargetVersionExplicit>
     <ScoreSaberSelectedBeatSaberDir Condition="'$(ScoreSaberSelectedBeatSaberDir)' == '' AND '$(BeatSaberDir)' != ''">$(BeatSaberDir)</ScoreSaberSelectedBeatSaberDir>
     <ScoreSaberSelectedBeatSaberDir Condition="'$(ScoreSaberSelectedBeatSaberDir)' == '' AND '$(GameDirectory)' != ''">$(GameDirectory)</ScoreSaberSelectedBeatSaberDir>
@@ -20,6 +20,8 @@
     <ScoreSaberDetectedGameVersionRaw Condition="'$(ScoreSaberDetectedGameVersionRaw)' == '' AND '$(ScoreSaberSelectedBeatSaberDir)' != '' AND Exists('$(ScoreSaberSelectedBeatSaberDir)\BeatSaberVersion.txt')">$([System.IO.File]::ReadAllText('$(ScoreSaberSelectedBeatSaberDir)\BeatSaberVersion.txt').Trim())</ScoreSaberDetectedGameVersionRaw>
     <ScoreSaberDetectedGameVersionRaw Condition="'$(ScoreSaberDetectedGameVersionRaw)' == '' AND '$(ScoreSaberSelectedBeatSaberDir)' != ''">$([System.IO.Path]::GetFileName($([System.Text.RegularExpressions.Regex]::Replace('$(ScoreSaberSelectedBeatSaberDir)', '[\\/]+$', ''))))</ScoreSaberDetectedGameVersionRaw>
     <ScoreSaberDetectedGameVersion Condition="'$(ScoreSaberDetectedGameVersionRaw)' != ''">$([System.Text.RegularExpressions.Regex]::Replace('$(ScoreSaberDetectedGameVersionRaw)', '_.*$', ''))</ScoreSaberDetectedGameVersion>
+    <ScoreSaberDetectedTargetVersion Condition="'$(ScoreSaberDetectedTargetVersion)' == '' AND '$([System.IO.Path]::GetFileName($([System.Text.RegularExpressions.Regex]::Replace('$(ScoreSaberSelectedBeatSaberDir)', '[\\/]+$', ''))))' == '1.45.3'">1.45.3</ScoreSaberDetectedTargetVersion>
+    <ScoreSaberDetectedTargetVersion Condition="'$(ScoreSaberDetectedTargetVersion)' == '' AND '$(ScoreSaberDetectedGameVersion)' == '1.45.3'">1.45.3</ScoreSaberDetectedTargetVersion>
     <ScoreSaberDetectedTargetVersion Condition="'$(ScoreSaberDetectedTargetVersion)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch('$(ScoreSaberDetectedGameVersion)', '^1\.29\.[01]$'))">1.29.0</ScoreSaberDetectedTargetVersion>
     <ScoreSaberDetectedTargetVersion Condition="'$(ScoreSaberDetectedTargetVersion)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch('$(ScoreSaberDetectedGameVersion)', '^1\.37\.[12]$'))">1.37.1</ScoreSaberDetectedTargetVersion>
     <ScoreSaberDetectedTargetVersion Condition="'$(ScoreSaberDetectedTargetVersion)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch('$(ScoreSaberDetectedGameVersion)', '^(1\.38\.0|1\.39\.[01])$'))">1.38.0</ScoreSaberDetectedTargetVersion>
@@ -34,12 +36,14 @@
     <ScoreSaberTargetVersion Condition="'$(ScoreSaberTargetVersion)' == '' AND '$(Platform)' == 'BS1.42.0'">1.42.0</ScoreSaberTargetVersion>
     <ScoreSaberTargetVersion Condition="'$(ScoreSaberTargetVersion)' == ''">$(ScoreSaberDefaultTargetVersion)</ScoreSaberTargetVersion>
     <BeatSaberDir Condition="'$(BeatSaberDir)' == '' AND '$(ScoreSaberTargetVersion)' == '1.45.0'">D:\BSManager\BSInstances\1.45.2</BeatSaberDir>
+    <BeatSaberDir Condition="'$(BeatSaberDir)' == '' AND '$(ScoreSaberTargetVersion)' == '1.45.3'">D:\BSManager\BSInstances\1.45.3</BeatSaberDir>
     <FrameworkPathOverride Condition="'$(BeatSaberDir)' != ''">$(BeatSaberDir)\Beat Saber_Data\Managed</FrameworkPathOverride>
     <ImportBSMTTargets>true</ImportBSMTTargets>
     <CopyPDB>false</CopyPDB>
     <DisableCopyToGame>false</DisableCopyToGame>
     <LegatoSourceVersion>1.44.1</LegatoSourceVersion>
     <LegatoTargetVersion>1.44.1</LegatoTargetVersion>
+    <LegatoTargetVersion Condition="'$(ScoreSaberTargetVersion)' == '1.45.3'">1.45.3</LegatoTargetVersion>
     <ScoreSaberRefsRoot Condition="'$(ScoreSaberRefsRoot)' == '' AND Exists('$(RepositoryRoot)refs')">$(RepositoryRoot)refs</ScoreSaberRefsRoot>
     <ScoreSaberRefsRoot Condition="'$(ScoreSaberRefsRoot)' == '' AND Exists('$(RepositoryRoot)Refs')">$(RepositoryRoot)Refs</ScoreSaberRefsRoot>
     <ScoreSaberRefsRoot Condition="'$(ScoreSaberRefsRoot)' == ''">$(RepositoryRoot)refs</ScoreSaberRefsRoot>

@@ -76,7 +76,14 @@ namespace ScoreSaber.Features.Replays.Playback {
 #if BSIPA_MODS
             var flight = DesktopSettings.Flight;
             if (flight != null) {
-                if (!_fpfcControllerStates.ContainsKey(flight)) _fpfcControllerStates.Add(flight, flight.enabled);
+                if (!_fpfcControllerStates.ContainsKey(flight)) {
+                    _fpfcControllerStates.Add(flight, flight.enabled);
+                    foreach (var pointer in Resources.FindObjectsOfTypeAll<UnityEngine.EventSystems.BaseInputModule>()) {
+                        if (pointer == null || pointer.GetType().FullName != "IPA.Desktop.DesktopPointerInput") continue;
+                        _fpfcControllerStates.Add(pointer, pointer.enabled);
+                        pointer.enabled = false;
+                    }
+                }
                 flight.enabled = false;
             }
 #endif

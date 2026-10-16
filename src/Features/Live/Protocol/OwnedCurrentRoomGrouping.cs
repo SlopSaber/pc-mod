@@ -31,7 +31,7 @@ namespace ScoreSaber.Features.Live.Protocol {
             var snapshot = list.Where(state => !string.IsNullOrEmpty(state.PlayerId))
                 .Select(state => new KeyValuePair<string, LiveRoomPlayerState>(state.PlayerId, state))
                 .ToArray();
-            if (!ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
+            if (snapshot.Length < 4096 || !ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
                 () => Build(snapshot), out Task<Dictionary<string, LiveRoomPlayerState>> task)) {
                 result = Build(snapshot);
                 return true;

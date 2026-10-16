@@ -28,21 +28,28 @@ namespace ScoreSaber.Features.Live.Protocol {
                 return false;
             }
 
-            var snapshot = list.Where(state => !string.IsNullOrEmpty(state.PlayerId))
-                .Select(state => new KeyValuePair<string, LiveRoomPlayerState>(state.PlayerId, state))
-                .ToArray();
+            var captured = new List<KeyValuePair<string, LiveRoomPlayerState>>();
+            foreach (LiveRoomPlayerState state in list) {
+                if (!string.IsNullOrEmpty(state.PlayerId)) {
+                    captured.Add(new KeyValuePair<string, LiveRoomPlayerState>(state.PlayerId, state));
+                }
+            }
+            result = Prepare(captured.ToArray());
+            return true;
+        }
+
+        private static Dictionary<string, LiveRoomPlayerState> Prepare(
+            KeyValuePair<string, LiveRoomPlayerState>[] snapshot) {
             if (snapshot.Length < 4096 || !ReplayStorageService.TryQueueOwnedPreparationWhenIdle(
                 () => Build(snapshot), out Task<Dictionary<string, LiveRoomPlayerState>> task)) {
-                result = Build(snapshot);
-                return true;
+                return Build(snapshot);
             }
             while (!task.IsCompleted) {
                 try { task.Wait(); }
                 catch (ThreadInterruptedException) { }
                 catch (AggregateException) { }
             }
-            result = task.GetAwaiter().GetResult();
-            return true;
+            return task.GetAwaiter().GetResult();
         }
 
         private static Dictionary<string, LiveRoomPlayerState> Build(

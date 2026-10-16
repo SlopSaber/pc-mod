@@ -73,6 +73,13 @@ namespace ScoreSaber.Features.Replays.Playback {
 
         public void SuppressFpfcCameraInput(Camera camera) {
             if (camera == null) return;
+#if BSIPA_MODS
+            var flight = DesktopSettings.Flight;
+            if (flight != null) {
+                if (!_fpfcControllerStates.ContainsKey(flight)) _fpfcControllerStates.Add(flight, flight.enabled);
+                flight.enabled = false;
+            }
+#endif
             foreach (var component in camera.GetComponents<MonoBehaviour>()) {
                 if (component == null) continue;
                 var typeName = component.GetType().FullName;

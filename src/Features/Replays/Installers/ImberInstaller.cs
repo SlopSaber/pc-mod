@@ -1,5 +1,9 @@
 ﻿using ScoreSaber.Features.Replays.UI;
+#if BSIPA_MODS
+using IFPFCSettings = ScoreSaber.Features.Replays.Playback.DesktopSettings;
+#else
 using SiraUtil.Tools.FPFC;
+#endif
 using Zenject;
 
 namespace ScoreSaber.Features.Replays.Installers {

@@ -1,7 +1,11 @@
 ﻿using IPA.Utilities;
 using ScoreSaber.Core.Configuration;
 using ScoreSaber.Features.Replays.Format;
+#if BSIPA_MODS
+using IFPFCSettings = ScoreSaber.Features.Replays.Playback.DesktopSettings;
+#else
 using SiraUtil.Tools.FPFC;
+#endif
 using System;
 using System.Collections.Generic;
 using System.Linq;

@@ -2,7 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using Zenject;
+#if BSIPA_MODS
+using IFPFCSettings = ScoreSaber.Features.Replays.Playback.DesktopSettings;
+#else
 using SiraUtil.Tools.FPFC;
+#endif
 using UnityEngine;
 using IPA.Utilities;
 using ScoreSaber.Core.Configuration;

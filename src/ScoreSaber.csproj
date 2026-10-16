@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Sdk="Microsoft.NET.Sdk">
+<Project>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
   <PropertyGroup>
     <ProjectGuid>{844132E4-CDFC-49D3-950D-38F62ED8B513}</ProjectGuid>
     <TargetFramework>net48</TargetFramework>
@@ -509,4 +510,6 @@
       <Compile Remove="$(LegatoSourceRoot)Library\Beatmaps\BeatmapMaxScoreCache.cs" />
     </ItemGroup>
   </Target>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+  <Import Project="..\BSIPA.Layout.targets" Condition="Exists('$(GameDirectory)\IPA\Data\Managed\IPA.Loader.dll') OR Exists('$(BeatSaberDir)\IPA\Data\Managed\IPA.Loader.dll')" />
 </Project>

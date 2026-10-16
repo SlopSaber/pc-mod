@@ -59,15 +59,21 @@ namespace ScoreSaber.Features.Live.Protocol {
 
         internal static HashSet<string> BuildActiveIds(LiveMatchRoomState room) {
             var playerIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string playerId in room.PlayerIds) {
-                if (!string.IsNullOrEmpty(playerId)) {
-                    playerIds.Add(playerId);
+            var currentIds = room.PlayerIds;
+            if (!OwnedCurrentActiveIds.TryAdd(room, currentIds, playerIds)) {
+                foreach (string playerId in currentIds) {
+                    if (!string.IsNullOrEmpty(playerId)) {
+                        playerIds.Add(playerId);
+                    }
                 }
             }
 
-            foreach (LiveRoomPlayerState state in room.PlayerStates) {
-                if (!string.IsNullOrEmpty(state.PlayerId)) {
-                    playerIds.Add(state.PlayerId);
+            var currentStates = room.PlayerStates;
+            if (!OwnedCurrentActiveIds.TryAdd(room, currentStates, playerIds)) {
+                foreach (LiveRoomPlayerState state in currentStates) {
+                    if (!string.IsNullOrEmpty(state.PlayerId)) {
+                        playerIds.Add(state.PlayerId);
+                    }
                 }
             }
             return playerIds;

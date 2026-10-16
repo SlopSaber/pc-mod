@@ -1,0 +1,77 @@
+using IPA.Utilities;
+using ScoreSaber.Features.Replays;
+using ScoreSaber.Live.V1;
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ScoreSaber.Features.Live.Protocol {
+    internal static class OwnedCurrentActiveIds {
+        internal static bool TryAdd(LiveMatchRoomState room, List<string> source, HashSet<string> destination) {
+            if (!CanPrepare(room, source)) {
+                return false;
+            }
+            var captured = new List<string>();
+            foreach (string id in source) {
+                if (!string.IsNullOrEmpty(id)) {
+                    captured.Add(id);
+                }
+            }
+            AddCaptured(captured.ToArray(), destination);
+            return true;
+        }
+
+        internal static bool TryAdd(LiveMatchRoomState room, List<LiveRoomPlayerState> source,
+            HashSet<string> destination) {
+            if (!CanPrepare(room, source)) {
+                return false;
+            }
+            try {
+                for (int i = 0; i < source.Count; i++) {
+                    LiveRoomPlayerState state = source[i];
+                    if (state == null || state.GetType() != typeof(LiveRoomPlayerState)) {
+                        return false;
+                    }
+                }
+            } catch {
+                return false;
+            }
+            var captured = new List<string>();
+            foreach (LiveRoomPlayerState state in source) {
+                if (!string.IsNullOrEmpty(state.PlayerId)) {
+                    captured.Add(state.PlayerId);
+                }
+            }
+            AddCaptured(captured.ToArray(), destination);
+            return true;
+        }
+
+        private static bool CanPrepare<T>(LiveMatchRoomState room, List<T> source) {
+            return source != null && source.GetType() == typeof(List<T>) && source.Count >= 4096
+                && room.GetType() == typeof(LiveMatchRoomState) && UnityGame.OnMainThread;
+        }
+
+        private static void AddCaptured(string[] snapshot, HashSet<string> destination) {
+            if (snapshot.Length < 4096 || !ReplayStorageService.TryQueueOwnedPreparationWhenIdle(() => {
+                Add(snapshot, destination);
+                return true;
+            }, out Task<bool> task)) {
+                Add(snapshot, destination);
+                return;
+            }
+            while (!task.IsCompleted) {
+                try { task.Wait(); }
+                catch (ThreadInterruptedException) { }
+                catch (AggregateException) { }
+            }
+            task.GetAwaiter().GetResult();
+        }
+
+        private static void Add(string[] snapshot, HashSet<string> destination) {
+            foreach (string id in snapshot) {
+                destination.Add(id);
+            }
+        }
+    }
+}

@@ -514,6 +514,7 @@
       <Compile Remove="$(LegatoSourceRoot)Polyfills\GlobalNamespace\PauseController\PauseControllerHeadsetEventsPatch.cs" />
       <Compile Remove="$(LegatoSourceRoot)Polyfills\GlobalNamespace\BeatmapCharacteristicSegmentedControlController\BeatmapCharacteristicSelectionSubscription.cs" />
       <Compile Remove="$(LegatoSourceRoot)Library\Beatmaps\BeatmapMaxScoreCache.cs" />
+      <Compile Remove="$(LegatoSourceRoot)Polyfills\SiraUtil\Tools\FPFC\**\*.cs" Condition="'$(PluginFolderName)' == 'Mods'" />
     </ItemGroup>
   </Target>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />

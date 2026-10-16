@@ -90,11 +90,11 @@ namespace ScoreSaber.Features.Live.Replay {
 
         private ReplayScoreSummary ScoreSummary(LevelCompletionResults results) {
             uint maxScore = _lastMaxScore;
-            double accuracy = maxScore > 0 ? Math.Min(1d, Math.Max(0d, (double)results.modifiedScore / maxScore)) : 0d;
+            double accuracy = maxScore > 0 ? Math.Min(1d, Math.Max(0d, (double)CompletionResultsCompatibility.GetModifiedScore(results) / maxScore)) : 0d;
 
             return new ReplayScoreSummary {
-                Score = ToUint(results.multipliedScore),
-                ModifiedScore = ToUint(results.modifiedScore),
+                Score = ToUint(CompletionResultsCompatibility.GetMultipliedScore(results)),
+                ModifiedScore = ToUint(CompletionResultsCompatibility.GetModifiedScore(results)),
                 MaxScore = maxScore,
                 Accuracy = accuracy,
                 Combo = ToUint(results.maxCombo),
@@ -102,7 +102,7 @@ namespace ScoreSaber.Features.Live.Replay {
                 FullCombo = results.fullCombo,
                 GoodCuts = ToUint(results.goodCutsCount),
                 BadCuts = ToUint(results.badCutsCount),
-                MissedNotes = ToUint(results.missedCount)
+                MissedNotes = ToUint(CompletionResultsCompatibility.GetMissedCount(results))
             };
         }
 

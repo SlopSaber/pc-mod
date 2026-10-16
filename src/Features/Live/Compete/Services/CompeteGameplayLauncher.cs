@@ -55,7 +55,11 @@ namespace ScoreSaber.Features.Live.Compete.Services {
             try {
                 ColorScheme colorScheme = playerData.colorSchemesSettings.GetOverrideColorScheme();
                 _menuTransitionsHelper.StartStandardLevel(
+#if BEAT_SABER_1453
+                    GameMode.Solo,
+#else
                     "Solo",
+#endif
                     song.BeatmapKey,
                     song.BeatmapLevel,
                     playerData.overrideEnvironmentSettings,

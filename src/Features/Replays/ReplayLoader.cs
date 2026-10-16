@@ -173,7 +173,11 @@ namespace ScoreSaber.Features.Replays {
                 overrideLightshowColors, gameplayModifiers, playerSettings, beforeSceneSwitch)) return;
 
             _menuTransitionsHelper.StartStandardLevel(
+#if BEAT_SABER_1453
+                GameMode.Development, beatmapKey, beatmapLevel, environmentSettings, colorScheme, overrideLightshowColors,
+#else
                 "Replay", beatmapKey, beatmapLevel, environmentSettings, colorScheme, overrideLightshowColors,
+#endif
                 gameplayModifiers, playerSettings, null, _environmentsListModel,
                 new GameplayAdditionalInformation("Exit Replay"), beforeSceneSwitch, null, ReplayEnd, null);
         }
@@ -188,7 +192,11 @@ namespace ScoreSaber.Features.Replays {
                 var managerType = assembly.GetType("Heck.PlayView.PlayViewManager", true);
                 var constructor = parametersType.GetConstructors().Single(method => method.GetParameters().FirstOrDefault()?.Name == "gameMode");
                 var arguments = constructor.GetParameters().Select(parameter => parameter.Name switch {
+#if BEAT_SABER_1453
+                    "gameMode" => (object)nameof(GameMode.Development),
+#else
                     "gameMode" => (object)"Replay",
+#endif
                     "beatmapKey" => beatmapKey,
                     "beatmapLevel" => beatmapLevel,
                     "overrideEnvironmentSettings" => environmentSettings,

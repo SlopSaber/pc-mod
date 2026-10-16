@@ -51,7 +51,12 @@ namespace ScoreSaber.Features.ScoreSubmission {
         }
 
         private void HandleStandardLevelFinished(StandardLevelScenesTransitionSetupData transition, LevelCompletionResults results) {
-            HandleLevelFinished(new ScoreSubmissionRequest(transition.gameMode, transition.GetBeatmapLevel(), transition.GetBeatmapKey(), results, transition.practiceSettings != null, GetCurrentSongTime()));
+#if BEAT_SABER_1453
+            string gameMode = transition.gameMode.ToString();
+#else
+            string gameMode = transition.gameMode;
+#endif
+            HandleLevelFinished(new ScoreSubmissionRequest(gameMode, transition.GetBeatmapLevel(), transition.GetBeatmapKey(), results, transition.practiceSettings != null, GetCurrentSongTime()));
         }
 
         private void HandleMultiplayerLevelFinished(MultiplayerLevelScenesTransitionSetupData transition, MultiplayerResultsData resultsData) {
@@ -68,7 +73,12 @@ namespace ScoreSaber.Features.ScoreSubmission {
                 return;
             }
 
-            HandleLevelFinished(new ScoreSubmissionRequest(transition.gameMode, transition.GetBeatmapLevel(), transition.GetBeatmapKey(), multiplayerResults.levelCompletionResults, false, GetCurrentSongTime()));
+#if BEAT_SABER_1453
+            string gameMode = transition.gameMode.ToString();
+#else
+            string gameMode = transition.gameMode;
+#endif
+            HandleLevelFinished(new ScoreSubmissionRequest(gameMode, transition.GetBeatmapLevel(), transition.GetBeatmapKey(), multiplayerResults.levelCompletionResults, false, GetCurrentSongTime()));
         }
 
         private void HandleLevelFinished(ScoreSubmissionRequest request) {
@@ -157,12 +167,12 @@ namespace ScoreSaber.Features.ScoreSubmission {
                 return true;
             }
 
-            if (request.Results.multipliedScore > playerScore.ModifiedScore) {
-                Plugin.Log.Debug($"Score beats cached API PB ({request.Results.multipliedScore} > {playerScore.ModifiedScore}); showing score upload status");
+            if (CompletionResultsCompatibility.GetMultipliedScore(request.Results) > playerScore.ModifiedScore) {
+                Plugin.Log.Debug($"Score beats cached API PB ({CompletionResultsCompatibility.GetMultipliedScore(request.Results)} > {playerScore.ModifiedScore}); showing score upload status");
                 return true;
             }
 
-            Plugin.Log.Debug($"Score did not beat cached API PB ({request.Results.multipliedScore} <= {playerScore.ModifiedScore}); uploading silently");
+            Plugin.Log.Debug($"Score did not beat cached API PB ({CompletionResultsCompatibility.GetMultipliedScore(request.Results)} <= {playerScore.ModifiedScore}); uploading silently");
             return false;
         }
 
@@ -191,7 +201,7 @@ namespace ScoreSaber.Features.ScoreSubmission {
                 return ScoreSubmissionDecision.WriteReplayOnly("practice run");
             }
 
-            if (request.Results.multipliedScore <= 0) {
+            if (CompletionResultsCompatibility.GetMultipliedScore(request.Results) <= 0) {
                 return ScoreSubmissionDecision.Ignore("score is 0, server would reject it");
             }
 

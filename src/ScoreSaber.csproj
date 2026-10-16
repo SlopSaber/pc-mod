@@ -504,6 +504,7 @@
       <DefineConstants>$([System.String]::Copy('$(DefineConstants)').Replace('BEAT_SABER_1_42_0;', '').Replace(';BEAT_SABER_1_42_0', '').Replace('BEAT_SABER_1_42_0', ''))</DefineConstants>
     </PropertyGroup>
     <ItemGroup>
+      <Compile Include="$(LegatoSourceRoot)Library\Platform\Authentication\IPlatformAuthenticationProvider.cs;$(LegatoSourceRoot)Library\Platform\Friends\IPlatformFriendsProvider.cs;$(LegatoSourceRoot)Library\Platform\Users\IPlatformUserProvider.cs" />
       <Compile Remove="$(LegatoSourceRoot)Polyfills\GlobalNamespace\BeatmapEditorScenesTransitionSetupData\BeatmapEditorScenesTransitionSetupData.cs" />
       <Compile Remove="$(LegatoSourceRoot)Polyfills\GlobalNamespace\LevelScenesTransitionSetupData\LevelScenesTransitionSetupData.cs" />
       <Compile Remove="$(LegatoSourceRoot)Polyfills\GlobalNamespace\MultiplayerLevelScenesTransitionSetupData\MultiplayerLevelScenesTransitionSetupData.cs" />

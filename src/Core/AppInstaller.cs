@@ -13,6 +13,9 @@ namespace ScoreSaber.Core {
             Container.BindInstance(Plugin.SettingsService).AsSingle();
             Container.BindInstance(Plugin.Instance.HttpInstance).AsSingle();
             Container.BindInstance(Plugin.Instance.ReplayState).AsSingle();
+#if BSIPA_MODS
+            Container.BindInterfacesAndSelfTo<Features.Replays.Playback.DesktopSettings>().AsSingle();
+#endif
 
             Container.Bind<ScoreSaberUIMaterials>().AsSingle();
             Container.BindInterfacesAndSelfTo<ScoreSaberClock>().AsSingle().NonLazy();

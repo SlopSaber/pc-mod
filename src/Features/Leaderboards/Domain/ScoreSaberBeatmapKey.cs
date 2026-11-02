@@ -3,6 +3,7 @@ using System;
 namespace ScoreSaber.Features.Leaderboards.Domain {
     internal static class ScoreSaberBeatmapKey {
         private const string CustomLevelPrefix = "custom_level_";
+        private const int SongHashLength = 40;
         private const string OstLevelPrefix = "ost_";
         private const string WipLevelSuffix = " WIP";
         private const string WipLevelSegment = "_WIP";
@@ -38,14 +39,27 @@ namespace ScoreSaber.Features.Leaderboards.Domain {
                 return false;
             }
 
+            if (IsCustomLevelId(levelId)) {
+                if (levelId.Length < CustomLevelPrefix.Length + SongHashLength) {
+                    return false;
+                }
+
+                for (int index = CustomLevelPrefix.Length; index < CustomLevelPrefix.Length + SongHashLength; index++) {
+                    if (!Uri.IsHexDigit(levelId[index])) {
+                        return false;
+                    }
+                }
+
+                songHash = levelId.Substring(CustomLevelPrefix.Length, SongHashLength);
+                return true;
+            }
+
             songHash = FormatSongHash(levelId);
             return !string.IsNullOrEmpty(songHash);
         }
 
         internal static bool IsWipLevelId(string levelId) => !string.IsNullOrEmpty(levelId) && (levelId.IndexOf(WipLevelSuffix, StringComparison.OrdinalIgnoreCase) >= 0 || levelId.IndexOf(WipLevelSegment, StringComparison.OrdinalIgnoreCase) >= 0);
 
-        private static string FormatSongHash(string levelId) => levelId.IndexOf(CustomLevelPrefix, StringComparison.Ordinal) >= 0
-            ? levelId.Replace(CustomLevelPrefix, string.Empty)
-            : OstLevelPrefix + levelId;
+        private static string FormatSongHash(string levelId) => OstLevelPrefix + levelId;
     }
 }

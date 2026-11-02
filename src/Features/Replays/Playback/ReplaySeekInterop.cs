@@ -59,7 +59,9 @@ namespace ScoreSaber.Features.Replays.Playback {
                 var trackType = assembly.GetType("Heck.Animation.Track", true);
                 var dummyType = assembly.GetType("Heck.CoroutineDummy", true);
                 var transformType = assembly.GetType("Heck.Animation.Transform.TransformController", true);
-                _tracks = (IDictionary)container.Resolve(typeof(Dictionary<,>).MakeGenericType(typeof(string), trackType));
+                var tracksType = typeof(Dictionary<,>).MakeGenericType(typeof(string), trackType);
+                if (!container.HasBinding(tracksType) || !container.HasBinding(dummyType)) return;
+                _tracks = (IDictionary)container.Resolve(tracksType);
                 _coroutineDummy = (MonoBehaviour)container.Resolve(dummyType);
                 _nullTrackProperties = trackType.GetMethod("NullProperties", AllInstance);
                 _transformOnEnable = transformType.GetMethod("OnEnable", AllInstance);
@@ -82,6 +84,7 @@ namespace ScoreSaber.Features.Replays.Playback {
             if (assembly == null) return;
             try {
                 var type = assembly.GetType("Chroma.Colorizer.LightColorizerManager", true);
+                if (!container.HasBinding(type)) return;
                 _chromaManager = container.Resolve(type);
                 _chromaColorizers = (IDictionary)type.GetProperty("Colorizers", AllInstance)?.GetValue(_chromaManager);
                 _resetChroma = type.GetMethod("ResetForReplaySeek", AllInstance);

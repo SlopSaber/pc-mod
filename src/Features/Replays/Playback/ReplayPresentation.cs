@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using ScoreSaber.Features.Replays.Compatibility;
 using UnityEngine;
+#if !BEAT_SABER_1_29_0
+using UnityEngine.SpatialTracking;
+#endif
 
 namespace ScoreSaber.Features.Replays.Playback {
     internal sealed class ReplayPresentation : IDisposable {
@@ -24,9 +27,48 @@ namespace ScoreSaber.Features.Replays.Playback {
         private bool _cursorReleased;
         private CursorLockMode _previousCursorLockState;
         private bool _previousCursorVisible;
+        private Camera _spectatorCamera;
+        private bool _reportedSpectatorRecovery;
+#if !BEAT_SABER_1_29_0
+        private TrackedPoseDriver _spectatorTracking;
+#endif
 
         public ReplayPresentation(PlayerVRControllersManager controllers) {
             _controllers = controllers;
+        }
+
+        public void PrepareSpectatorCamera(Camera camera) {
+            _spectatorCamera = camera;
+            camera.stereoTargetEye = StereoTargetEyeMask.Both;
+            camera.targetTexture = null;
+#if !BEAT_SABER_1_29_0
+            _spectatorTracking = camera.GetComponent<TrackedPoseDriver>();
+            if (_spectatorTracking == null) {
+                _spectatorTracking = camera.gameObject.AddComponent<TrackedPoseDriver>();
+            }
+            _spectatorTracking.SetPoseSource(TrackedPoseDriver.DeviceType.GenericXRDevice, TrackedPoseDriver.TrackedPose.Center);
+            _spectatorTracking.trackingType = TrackedPoseDriver.TrackingType.RotationAndPosition;
+            _spectatorTracking.updateType = TrackedPoseDriver.UpdateType.UpdateAndBeforeRender;
+            _spectatorTracking.UseRelativeTransform = false;
+            _spectatorTracking.enabled = true;
+#endif
+            Plugin.Log.Info($"Replay spectator: camera={camera.name}, xrEnabled={UnityEngine.XR.XRSettings.enabled}, offset={camera.transform.parent.position}");
+        }
+
+        public void MaintainSpectatorCamera(bool fpfcEnabled) {
+            if (_spectatorCamera == null || fpfcEnabled || !UnityEngine.XR.XRSettings.enabled) return;
+
+            // A transient XR display stop must not permanently disable the replay's headset view.
+            if (!_spectatorCamera.enabled) {
+                _spectatorCamera.enabled = true;
+                if (!_reportedSpectatorRecovery) {
+                    _reportedSpectatorRecovery = true;
+                    Plugin.Log.Info("Restored VR replay spectator camera after it was disabled");
+                }
+            }
+#if !BEAT_SABER_1_29_0
+            if (_spectatorTracking != null && !_spectatorTracking.enabled) _spectatorTracking.enabled = true;
+#endif
         }
 
         public void PrepareSabers() {

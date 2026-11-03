@@ -68,7 +68,7 @@ namespace ScoreSaber.Features.Replays.Legacy {
             SetupCameras();
             _presentation.SuppressFpfcCameraInput(_desktopCamera);
             _presentation.SuppressFpfcCameraInput(_spectatorCamera);
-            _presentation.AttachAudioListener(_desktopCamera);
+            _presentation.AttachAudioListener(UnityEngine.XR.XRSettings.enabled && !_fpfcSettings.Enabled ? _spectatorCamera : _desktopCamera);
             _presentation.PrepareSabers();
             _presentation.ReleaseFpfcCursor(_fpfcSettings.Enabled);
             _fpfcSettings.AddChangedListener(fpfcSettings_Changed);
@@ -94,6 +94,7 @@ namespace ScoreSaber.Features.Replays.Legacy {
             _desktopCamera.gameObject.SetActive(true);
             _desktopCamera.tag = "MainCamera";
             _desktopCamera.depth = 1;
+            _desktopCamera.stereoTargetEye = StereoTargetEyeMask.None;
 
             _mainCamera.SetField("_camera", _desktopCamera);
 
@@ -101,16 +102,17 @@ namespace ScoreSaber.Features.Replays.Legacy {
             // camera2 finds these cameras by object path, so keep the names and hierarchy stable
             GameObject spectatorObject = new GameObject("SpectatorParent");
             _spectatorCamera = UnityEngine.Object.Instantiate(_desktopCamera);
-            spectatorObject.transform.position = _roomSettings.Center;
             Quaternion rotation = new Quaternion {
                 eulerAngles = new Vector3(0.0f, _roomSettings.Rotation, 0.0f)
             };
             spectatorObject.transform.rotation = rotation;
+            spectatorObject.transform.position = _roomSettings.Center + rotation * new Vector3(0f, 0f, -2f);
             _spectatorCamera.stereoTargetEye = StereoTargetEyeMask.Both;
-            _mainCamera.CopyTrackedPoseDriverTo(_spectatorCamera);
             _spectatorCamera.gameObject.SetActive(true);
             _spectatorCamera.depth = 0;
-            _spectatorCamera.transform.SetParent(spectatorObject.transform);
+            _spectatorCamera.transform.SetParent(spectatorObject.transform, false);
+            _presentation.PrepareSpectatorCamera(_spectatorCamera);
+            _presentation.MaintainSpectatorCamera(_fpfcSettings.Enabled);
 
             if (_settings.Current.enableReplayFrameRenderer) {
                 var ss = Resources.FindObjectsOfTypeAll<ScreenshotRecorder>().Last();
@@ -124,6 +126,7 @@ namespace ScoreSaber.Features.Replays.Legacy {
 
         public void Tick() {
 
+            _presentation.MaintainSpectatorCamera(_fpfcSettings.Enabled);
             _presentation.SuppressFpfcCameraInput(_desktopCamera);
             _presentation.SuppressFpfcCameraInput(_spectatorCamera);
             _presentation.ReleaseFpfcCursor(_fpfcSettings.Enabled);

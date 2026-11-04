@@ -51,6 +51,14 @@ namespace ScoreSaber.Features.Leaderboards.UI {
         internal void Bind(BSMLParserParams parserParams, ProfileDetailView profileDetailView) {
             _parserParams = parserParams;
             _profileDetailView = profileDetailView;
+
+            // BSML modals are cloned from a dropdown modal that leaves the screen behind it undimmed.
+            if (ScoreDetailView.detailModalRoot != null) {
+                AnimateParentCanvas(ref ScoreDetailView.detailModalRoot) = true;
+            }
+            if (_profileDetailView?.profileModalRoot != null) {
+                AnimateParentCanvas(ref _profileDetailView.profileModalRoot) = true;
+            }
         }
 
         internal void ShowScore(ScoreMap score) {

@@ -73,7 +73,7 @@ namespace ScoreSaber.Features.Leaderboards.UI {
         private void Parse() {
             BsmlParser.Instance.Parse(BSMLHotReload.ResourceContent(typeof(ScoreSaberLeaderboardOverlayController).Assembly, OverlayResource), _leaderboardViewController.gameObject, this);
             _container.Inject(_profileDetailView);
-            _modalFlow.Bind(_parserParams, _profileDetailView);
+            _modalFlow.Bind(_parserParams, _profileDetailView, _leaderboardViewController.transform);
         }
 
         internal void ApplyAvatarLayout(LeaderboardMap leaderboard) {

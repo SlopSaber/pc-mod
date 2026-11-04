@@ -10,7 +10,9 @@ using ScoreSaber.Core;
 using ScoreSaber.Features.Leaderboards.UI.ScoreDetails;
 using ScoreSaber.Features.Players.Profile;
 using System;
+using System.Reflection;
 using System.Threading.Tasks;
+using HarmonyLib;
 using IPA.Utilities;
 using UnityEngine;
 
@@ -18,6 +20,14 @@ namespace ScoreSaber.Features.Leaderboards.UI {
     internal class LeaderboardModalFlow : IDisposable {
         private static readonly FieldAccessor<ModalView, bool>.Accessor AnimateParentCanvas =
             FieldAccessor<ModalView, bool>.GetAccessor("_animateParentCanvas");
+        private static readonly FieldAccessor<ModalView, bool>.Accessor ViewIsValid =
+            FieldAccessor<ModalView, bool>.GetAccessor("_viewIsValid");
+        private static readonly FieldAccessor<ModalView, CanvasGroup>.Accessor ParentCanvasGroup =
+            FieldAccessor<ModalView, CanvasGroup>.GetAccessor("_parentCanvasGroup");
+        private static readonly MethodInfo SetupView = AccessTools.Method(typeof(ModalView), "SetupView");
+        private static readonly MethodInfo GetModalRootTransform = AccessTools.Method(typeof(ModalView), "GetModalRootTransform");
+
+        private Transform _dimmedRoot;
 
         private readonly PanelView _panelView;
         private readonly ReplayLoader _replayLoader;
@@ -48,17 +58,37 @@ namespace ScoreSaber.Features.Leaderboards.UI {
             ScoreDetailView.startReplay += StartReplay;
         }
 
-        internal void Bind(BSMLParserParams parserParams, ProfileDetailView profileDetailView) {
+        internal void Bind(BSMLParserParams parserParams, ProfileDetailView profileDetailView, Transform dimmedRoot) {
             _parserParams = parserParams;
             _profileDetailView = profileDetailView;
+            _dimmedRoot = dimmedRoot;
+        }
 
-            // BSML modals are cloned from a dropdown modal that leaves the screen behind it undimmed.
-            if (ScoreDetailView.detailModalRoot != null) {
-                AnimateParentCanvas(ref ScoreDetailView.detailModalRoot) = true;
+        // HMUI dims the first active view controller under the modal's screen, chosen and cached on the first
+        // show. Next to LeaderboardCore and other leaderboard views that is not necessarily this leaderboard,
+        // so the modal is set up explicitly to dim the ScoreSaber view behind it.
+        private void PrepareDim(ModalView modal) {
+            if (modal == null || _dimmedRoot == null) {
+                return;
             }
-            if (_profileDetailView?.profileModalRoot != null) {
-                AnimateParentCanvas(ref _profileDetailView.profileModalRoot) = true;
+
+            if (!ViewIsValid(ref modal) && modal.transform.parent != null) {
+                var arguments = new object[] { modal.transform.parent, null, null };
+                var modalRoot = GetModalRootTransform?.Invoke(null, arguments) as Transform;
+                if (modalRoot != null && SetupView != null) {
+                    SetupView.Invoke(modal, new object[] { modalRoot });
+                }
             }
+
+            CanvasGroup previous = ParentCanvasGroup(ref modal);
+            if (!_dimmedRoot.TryGetComponent(out CanvasGroup dimmed)) {
+                dimmed = _dimmedRoot.gameObject.AddComponent<CanvasGroup>();
+            }
+            if (previous != dimmed) {
+                Plugin.Log.Debug($"Leaderboard modal dims '{dimmed.name}' instead of '{(previous != null ? previous.name : "nothing")}'");
+                ParentCanvasGroup(ref modal) = dimmed;
+            }
+            AnimateParentCanvas(ref modal) = true;
         }
 
         internal void ShowScore(ScoreMap score) {
@@ -66,6 +96,7 @@ namespace ScoreSaber.Features.Leaderboards.UI {
                 return;
             }
 
+            PrepareDim(ScoreDetailView.detailModalRoot);
             _parserParams.EmitEvent("present-score-info");
             ScoreDetailView.SetScoreInfo(score, _replayDownloading);
         }
@@ -105,6 +136,7 @@ namespace ScoreSaber.Features.Leaderboards.UI {
             }
 
             CloseModals();
+            PrepareDim(_profileDetailView.profileModalRoot);
             _parserParams.EmitEvent("show-profile");
             _profileDetailView.ShowProfile(playerId).RunTask();
         }
